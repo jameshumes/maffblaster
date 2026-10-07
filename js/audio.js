@@ -63,6 +63,7 @@ export const SFX={
   boing(){tone('sine',180,900,.14,.12);tone('sine',900,360,.22,.08,.14)},
   balloonPop(){noise(.18,.5,6000);tone('sine',900,200,.12,.12)},
   cheer(){[523,659,784,1047].forEach((f,i)=>tone('triangle',f,f,.25,.1,i*.08));noise(.6,.08,7000,.2)},
+  coin(){tone('square',1320,1320,.06,.05);tone('square',1760,1760,.14,.05,.06)},
   blip(){tone('square',1500+Math.random()*500,1400,.025,.015)},
   chime(){[1047,1319,1568].forEach((f,i)=>tone('sine',f,f,.4,.06,i*.06))},
   whoosh(){noise(.6,.2,2500)},

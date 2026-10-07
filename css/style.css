@@ -248,3 +248,29 @@ h3{font-family:Orbitron;font-size:13px;letter-spacing:.2em;text-align:center;col
 .kres-b.big{background:#ff4f9a;box-shadow:0 7px 0 #c9306f;color:#fff}
 .kres-b small{font-size:17px;font-weight:700}
 .kres-b:active{transform:translateY(5px);box-shadow:0 2px 0 #c9b6ff}
+.k3{position:absolute;inset:0}
+.k3+.kc{background:transparent}
+
+/* 3D valley behind the hub */
+.kh3{position:absolute;inset:0}
+.kh.k3d{background:none;pointer-events:none;justify-content:space-between}
+.kh.k3d>*{pointer-events:auto}
+.kh-games.k3d{margin-top:auto;grid-template-columns:repeat(3,1fr);max-width:1100px;gap:18px}
+.kh-games.k3d .kh-game{padding:14px 12px 16px;border-radius:26px;background:rgba(255,255,255,.92);backdrop-filter:blur(6px)}
+.kh-got{margin-top:6px;font-weight:700;font-size:17px;color:#e6a700}
+.kh-skills.k3d{margin-top:auto;background:rgba(255,255,255,.35);backdrop-filter:blur(6px);padding:16px;border-radius:30px}
+@media (max-width:700px){.kh-games.k3d{grid-template-columns:1fr}.kh-games.k3d .kh-name{font-size:22px}}
+
+.kh-skills.k3d{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;max-width:1000px}
+.kh-skills.k3d .kh-skill{padding:12px 8px}
+.kh-skills.k3d .kh-sicon{font-size:40px}
+.kh-skills.k3d .kh-sname{font-size:18px}
+/* storybook title card */
+.ktitle-card{position:absolute;inset:0;z-index:6;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:radial-gradient(circle at 50% 40%,#fff 0,#fff6d6 40%,color-mix(in srgb,var(--c) 45%,#fff) 100%);transition:opacity .6s,transform .6s}
+.ktitle-card.out{opacity:0;transform:scale(1.15);pointer-events:none}
+.ktc-art{font-size:clamp(90px,14vw,160px);animation:tcArt 1.2s cubic-bezier(.3,1.6,.6,1) both}
+@keyframes tcArt{from{transform:scale(0) rotate(-40deg)}}
+.ktc-name{font-weight:700;font-size:clamp(40px,7vw,84px);color:#fff;-webkit-text-stroke:5px var(--c);paint-order:stroke fill;text-shadow:0 8px 0 rgba(0,0,0,.1);animation:tcIn .7s .25s cubic-bezier(.3,1.6,.6,1) both}
+.ktc-skill{margin-top:10px;font-weight:700;font-size:26px;background:#fff;padding:8px 22px;border-radius:30px;box-shadow:0 6px 0 var(--c);animation:tcIn .7s .5s cubic-bezier(.3,1.6,.6,1) both}
+@keyframes tcIn{from{transform:translateY(40px) scale(.6);opacity:0}}

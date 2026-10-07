@@ -21,19 +21,33 @@ const SONGS={
     B:[[84,_,81,_,77,_,81,84],[84,_,79,_,76,_,79,84],[81,_,77,_,74,_,77,81],[79,_,83,_,86,_,_,_]]},
 };
 
-let timer=null,song=null,step=0,next=0,bus=null,ducked=false;
+let timer=null,song=null,step=0,next=0,bus=null,wet=null,ducked=false;
 const mtof=m=>440*2**((m-69)/12);
 function ensure(){
   const a=audioCtx();if(!a.AC)return null;
-  if(!bus){bus=a.AC.createGain();bus.gain.value=.5;bus.connect(a.master)}
+  if(!bus){
+    bus=a.AC.createGain();bus.gain.value=.5;bus.connect(a.master);
+    // a soft hall: decaying stereo noise as the impulse response
+    const AC=a.AC,len=AC.sampleRate*2.2,ir=AC.createBuffer(2,len,AC.sampleRate);
+    for(let c=0;c<2;c++){const d=ir.getChannelData(c);for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*(1-i/len)**3.2}
+    const conv=AC.createConvolver();conv.buffer=ir;wet=AC.createGain();wet.gain.value=.9;
+    const back=AC.createGain();back.gain.value=.32;wet.connect(conv).connect(back).connect(bus);
+  }
   return a;
 }
-function note(a,type,m,t,dur,vol,lp){
+function note(a,type,m,t,dur,vol,lp,send=.35){
   const {AC}=a,o=AC.createOscillator(),g=AC.createGain();
   o.type=type;o.frequency.setValueAtTime(mtof(m),t);
   g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vol,t+.006);g.gain.exponentialRampToValueAtTime(.0001,t+dur);
   if(lp){const f=AC.createBiquadFilter();f.type='lowpass';f.frequency.value=lp;o.connect(f).connect(g)}else o.connect(g);
-  g.connect(bus);o.start(t);o.stop(t+dur+.05);
+  g.connect(bus);if(send&&wet){const s=a.AC.createGain();s.gain.value=send;g.connect(s).connect(wet)}o.start(t);o.stop(t+dur+.05);
+}
+// a soft chord pad that swells once per bar
+function pad(a,ch,t,dur){
+  for(const iv of [0,ch[1],7]){const {AC}=a,o=AC.createOscillator(),g=AC.createGain(),f=AC.createBiquadFilter();
+    o.type='sawtooth';o.frequency.value=mtof(ch[0]+iv-12);o.detune.value=(Math.random()-.5)*14;f.type='lowpass';f.frequency.value=900;
+    g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.018,t+dur*.4);g.gain.linearRampToValueAtTime(0,t+dur);
+    o.connect(f).connect(g);g.connect(bus);const s=AC.createGain();s.gain.value=.6;g.connect(s).connect(wet);o.start(t);o.stop(t+dur+.05)}
 }
 function drum(a,kind,t,v=1){
   const {AC,noiseBuf}=a,g=AC.createGain();g.connect(bus);
@@ -51,7 +65,8 @@ function playStep(a,s,t){
   const mel=(Math.floor(bar/n)%2?song.B:song.A)[bar%n][i];
   if(mel!=null)note(a,song.lead,mel,t,song.leadDur,song.leadVol,song.lp);
   if(song.mallet&&mel!=null)note(a,'sine',mel+12,t,.12,song.leadVol*.25);
-  const bp=[0,_,0,12,0,_,7,_][i];if(bp!=null)note(a,'triangle',ch[0]-24+bp,t,.24,.11);
+  const bp=[0,_,0,12,0,_,7,_][i];if(bp!=null)note(a,'triangle',ch[0]-24+bp,t,.24,.11,0,0);
+  if(i===0)pad(a,ch,t,60/song.bpm*4);
   if(song.arp){const tones=[0,ch[1],7,12];note(a,'triangle',ch[0]+tones[[0,1,2,3,2,1,0,1][i]],t,.14,.028)}
   if(song.drums){
     if(i===0||i===4||(song.drums>1&&i===7))drum(a,'kick',t);

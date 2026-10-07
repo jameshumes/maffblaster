@@ -1,0 +1,4 @@
+tools/voices/models/
+tools/voices/venv/
+tools/voices/lines.json
+node_modules/
