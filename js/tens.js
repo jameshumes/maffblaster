@@ -4,6 +4,7 @@
 import {$,ri,pick,shuffle,clamp,rand} from './util.js';
 import {save,rec,akey,choiceMode} from './save.js';
 import {SFX} from './audio.js';
+import {NUM_COLORS} from './kids.js';
 import {V,FX,emit,burst,shockwave,gridPush,stream,firework,elWorld,THREE} from './fx.js';
 
 // ---------- column generators (used by the curriculum) ----------
@@ -58,6 +59,7 @@ export function createTens(api){
         const p=cols-1-c,ch=s[s.length-1-p];
         if(ch===undefined){cell('');continue}
         const el=cell('tile',ch,p);R.tiles[p].push({d:+ch,el,used:false});
+        if(save.settings.mode==='kids')el.style.color=NUM_COLORS[+ch];
       }
     }
     cell('trule');
@@ -140,7 +142,7 @@ export function createTens(api){
       R.ansCells[R.place].textContent=S%10;
       const c=Math.floor(S/10);
       if(c){ // carry into the next column as a tile of its own
-        const cell=R.carryCells[R.place+1];cell.textContent=c;R.tiles[R.place+1].push({d:c,el:cell,used:false,carry:true});
+        const cell=R.carryCells[R.place+1];cell.textContent=c;if(save.settings.mode==='kids')cell.style.color=NUM_COLORS[c];R.tiles[R.place+1].push({d:c,el:cell,used:false,carry:true});
         const [ax,ay]=elWorld(R.ansCells[R.place]),[bx,by]=elWorld(cell);stream(ax,ay,bx,by,'#22e6ff',30);
       }
     }

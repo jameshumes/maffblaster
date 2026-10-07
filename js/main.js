@@ -4,6 +4,7 @@ import {audio,SFX,setVolume} from './audio.js';
 import {THREE,scene,V,FX,labelsEl,gridPush,emit,burst,shockwave,firework,clearFireworks,polyGeo,glowMat,toScreen,fxStep,fxRender} from './fx.js';
 import {makeChoices} from './choices.js';
 import {createTens} from './tens.js';
+import {createKids} from './kids.js';
 import {CHAPTERS,LV,chapterById} from './curriculum/index.js';
 
 // enemy look per level kind
@@ -125,7 +126,7 @@ function killShot(s){scene.remove(s.m);s.m.material.dispose();shots.splice(shots
 function clearField(){
   [...enemies].forEach(removeEnemy);[...shots].forEach(killShot);
   labelsEl.querySelectorAll('.pop').forEach(n=>n.remove());clearFireworks();$('toasts').innerHTML='';
-  tens.stop();hideChoices();target=null;
+  tens.stop();kids.stop();document.body.classList.remove('kidsmode');hideChoices();target=null;
   buf='';renderInput();
 }
 
@@ -133,7 +134,7 @@ function clearField(){
 let choiceCb=null,choiceVals=[];
 // digits can't pick between numbers, so choices use arrows (DDR order) or the home row
 const CHOICE_KEYS={4:[['ArrowLeft','d'],['ArrowDown','f'],['ArrowUp','j'],['ArrowRight','k']],
-                   3:[['ArrowLeft','f'],['ArrowUp','ArrowDown','g','h'],['ArrowRight','j']]};
+                   3:[['ArrowLeft','f'],['ArrowUp','ArrowDown','h','g'],['ArrowRight','j']]};
 const ARROW={ArrowLeft:'←',ArrowDown:'↓',ArrowUp:'↑',ArrowRight:'→'};
 const choiceIndex=k=>{const ks=CHOICE_KEYS[choiceVals.length]||[];k=k.length===1?k.toLowerCase():k;return ks.findIndex(a=>a.includes(k))};
 function showChoices(L,cb){
@@ -147,7 +148,7 @@ function showChoices(L,cb){
   });
   show('choices');show('inputWrap',false);
 }
-function hideChoices(){choiceCb=null;show('choices',false);if(state==='play')show('inputWrap')}
+function hideChoices(){choiceCb=null;show('choices',false);if(state==='play'&&!kids.running)show('inputWrap')}
 function pickChoice(i){
   if(state!=='play'||!choiceCb||i>=choiceVals.length)return;
   const b=$('choices').children[i];if(b.classList.contains('bad'))return;
@@ -190,6 +191,14 @@ const tens=createTens({
   hideChoices,
 });
 
+// ---------- kids mode ----------
+const kids=createKids({
+  G:()=>G,
+  problem:()=>freshProblem(),
+  showChoices,hideChoices,
+  finish(stars,info){if(state!=='play')return;G.kidStars=stars;G.kidInfo=info;state='ending';G.ending=0},
+});
+
 // ---------- spawning ----------
 const srcFor=()=>G.lv.mix?LV[pick(G.lv.mix)]:G.lv;
 function nextProblem(){
@@ -200,6 +209,16 @@ function nextProblem(){
     const src=srcFor(),[a,b]=choosePair(src,G.recent);
     const prob=src.make(a,b,src);
     if(keys.has(prob.key)||act.has(prob.layers[0].a))continue;
+    return{prob,src};
+  }
+  return null;
+}
+function freshProblem(){
+  for(let tries=0;tries<40;tries++){
+    const src=srcFor(),[a,b]=choosePair(src,G.recent),prob=src.make(a,b,src);
+    // small pools (Make 10 has 5 facts) would run dry, so repeats are allowed as a last resort
+    if(G.recent.includes(prob.key)&&tries<39)continue;
+    G.recent.push(prob.key);if(G.recent.length>5)G.recent.shift();
     return{prob,src};
   }
   return null;
@@ -363,7 +382,8 @@ function placeLabels(){
 function updatePlay(dt){
   G.t+=dt;
   if(state==='play'){buffsStep(dt);renderBuffs()}
-  if(tens.active)tens.update(dt);
+  if(kids.running)kids.update(dt);
+  else if(tens.active)tens.update(dt);
   else{
     if(state==='play'){
       if(!enemies.length)G.spawnT=Math.min(G.spawnT,.5);
@@ -396,6 +416,13 @@ function startLevel(lv){
   $('intro').style.setProperty('--c',w.color);
   $('iWorld').textContent=`${lv.ch.name} · WORLD ${lv.w+1} · ${w.name}`;
   $('iName').textContent=lv.name;$('iTip').innerHTML=lv.tip;
+  if(mode()==='kids'){
+    document.body.classList.add('kidsmode');
+    $('iGoals').innerHTML='';
+    if(lv.game!=='tens')$('iTip').innerHTML='Help the <b>Super Kitty Squad</b>! Pick the right answer to pop each balloon and bring the animals safely home.';
+    $('iHint').textContent=lv.game==='tens'?'Type two numbers that make 10, then pick the total with ← ↑ → or tap it.':'Pick an answer with ← ↑ → (or F G J), or just tap it! SPACE moves the story along.';
+    show('intro');return;
+  }
   $('iGoals').innerHTML=`ENDLESS · faster every wave · ${G.goals.map((g,i)=>`<span style="color:${STAR_COLOR[i+1]}">${'★'.repeat(i+1)}</span> ${g.toLocaleString()}`).join(' &nbsp; ')}`;
   const m=mode(),ch=choiceMode();
   $('iHint').textContent=lv.game==='tens'
@@ -408,6 +435,8 @@ function beginPlay(){
   state='play';hideOverlays();show('hud');
   const typing=G.lv.game==='tens'||!choiceMode();
   show('inputWrap',typing);show('keypad',TOUCH&&typing);
+  if(mode()==='kids'&&G.lv.game!=='tens'){show('hud',false);show('inputWrap',false);show('keypad',false);kids.start(G.lv);return}
+  if(mode()==='kids')kids.backdrop();
   if(G.lv.game==='tens')tens.start(G.lv,worldOf(G.lv).color);
   updateHUD();
 }
@@ -417,8 +446,20 @@ function endLevel(){
   for(const e of [...enemies]){burst(e.x,e.y,e.st.color,90,40);removeEnemy(e)}
   if(starsFor(G.score,G.goals))SFX.win();else SFX.lose();
 }
+function showKidsResults(){
+  const lv=G.lv,stars=G.kidStars,key=levelKey(lv.id),r=save.levels[key]||{stars:0,best:0},nxt=lv.ch.levels[lv.i+1];
+  r.stars=Math.max(r.stars,stars);save.levels[key]=r;persist();
+  $('rKick').textContent=lv.name.toUpperCase();
+  $('rTitle').textContent=['','GOOD JOB!','GREAT JOB!','AMAZING!'][stars];
+  $('rStars').innerHTML=[0,1,2].map(k=>k<stars?`<i style="animation-delay:${.2+k*.25}s">★</i>`:'<s>★</s>').join('');
+  $('rStats').innerHTML=`<div><b>${G.kidInfo.rescued}</b><span>friends rescued</span></div><div><b>${G.kidInfo.oops}</b><span>oopsies</span></div><div><b>${'★'.repeat(stars)}</b><span>stars</span></div><div><b>${lv.ch.name==='ADDITION'?'➕':'✖️'}</b><span>${lv.name}</span></div>`;
+  $('rTip').innerHTML=stars===3?'A perfect rescue! You are a real Super Kitty!':'Fewer oopsies earns more stars. You can do it!';
+  $('bNext').innerHTML=nxt?'NEXT <kbd>ENTER</kbd>':'MENU <kbd>ENTER</kbd>';
+  G.stars=stars;show('results');
+}
 function showResults(){
   state='results';hidePlayUI();tens.stop();
+  if(G.kidInfo){showKidsResults();return}
   const lv=G.lv,w=worldOf(lv),att=G.hits+G.misses+G.crashes;
   const acc=att?G.hits/att:0,avg=G.times.length?G.times.reduce((a,b)=>a+b,0)/G.times.length:0;
   const stars=starsFor(G.score,G.goals);
@@ -580,6 +621,7 @@ $('mcv').addEventListener('mouseleave',()=>$('mtip').classList.add('hidden'));
 // a key during play; returns true if it was used
 function playKey(k){
   if(choiceCb){const i=choiceIndex(k);if(i>=0){pickChoice(i);return true}}
+  if(kids.running)return kids.key(k);
   if(tens.active)return tens.key(k);
   if(choiceMode())return false;
   if(k.length===1&&k>='0'&&k<='9'){typeDigit(k);return true}
@@ -639,7 +681,7 @@ function frame(now){
     fxStep(dt);
   }
   const shooter=!!G&&G.lv.game!=='tens'&&(state==='play'||state==='ending'||state==='paused'||state==='intro');
-  fxRender({dt,time:gtime,paused:state==='paused',ship:shooter,shield:shooter,lifeFrac:G?G.lives/G.maxLives:1});
+  if(!kids.active)fxRender({dt,time:gtime,paused:state==='paused',ship:shooter,shield:shooter,lifeFrac:G?G.lives/G.maxLives:1});
   placeLabels();
 }
 showChapters();

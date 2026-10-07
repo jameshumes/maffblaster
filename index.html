@@ -8,11 +8,12 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%2302030a'/%3E%3Cpath d='M16 3 29 16 16 29 3 16Z' fill='none' stroke='%2322e6ff' stroke-width='3'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Exo+2:wght@500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Exo+2:wght@500;600;700;800&family=Fredoka:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 <canvas id="gl"></canvas>
+<div id="kids" class="hidden"></div>
 <div id="labels"></div>
 <div id="tens" class="hidden"></div>
 <div id="toasts"></div>
@@ -44,7 +45,7 @@
 </div>
 
 <div class="settings" id="settings">
-  <span>Mode <span class="seg" id="modeSeg"><button data-v="kids" disabled title="Coming soon">Kids</button><button data-v="easy" title="Pick from 4 answers">Easy</button><button data-v="normal" title="Type the answer">Normal</button><button data-v="hard" title="No answer reveal on a miss">Hard</button></span></span>
+  <span>Mode <span class="seg" id="modeSeg"><button data-v="kids" title="Balloons, kitties and 3 choices">Kids</button><button data-v="easy" title="Pick from 4 answers">Easy</button><button data-v="normal" title="Type the answer">Normal</button><button data-v="hard" title="No answer reveal on a miss">Hard</button></span></span>
   <span>Speed <span class="seg" id="diffSeg"><button data-v="1.5">Relaxed</button><button data-v="1">Normal</button><button data-v="0.7">Intense</button></span></span>
   <label><input type="checkbox" id="auto"> Auto-fire on match</label>
   <label>Volume <input type="range" id="vol" min="0" max="1" step="0.05"></label>
