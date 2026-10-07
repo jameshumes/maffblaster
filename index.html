@@ -27,6 +27,22 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 .pop{position:absolute;left:0;top:0;font-family:Orbitron;font-weight:700;font-size:18px;color:#fff;text-shadow:0 0 10px var(--c),0 0 20px var(--c);
   animation:pop .9s ease-out forwards;pointer-events:none;white-space:nowrap}
 @keyframes pop{from{opacity:1;margin-top:0}to{opacity:0;margin-top:-50px}}
+/* missed answer revealed as a firework burst that sizzles out */
+.fw{position:absolute;left:0;top:0;pointer-events:none;white-space:nowrap;text-align:center;font-family:Orbitron;font-weight:900;line-height:1;
+  color:#fff;animation:fwText 2.6s linear forwards}
+.fw .q{display:block;font-size:clamp(14px,1.6vw,20px);font-weight:700;color:var(--c);text-shadow:0 0 8px var(--c);margin-bottom:6px;letter-spacing:.06em}
+.fw .a{display:block;font-size:clamp(46px,7vw,92px);text-shadow:0 0 6px #fff,0 0 18px var(--c),0 0 40px var(--c),0 0 70px var(--c)}
+#labels.frozen .fw{animation-play-state:paused}
+@keyframes fwText{
+  0%{opacity:0;transform:var(--p) scale(.15);filter:brightness(3) blur(3px)}
+  5%{opacity:1;transform:var(--p) scale(1.3);filter:brightness(2.6) blur(0)}
+  12%{transform:var(--p) scale(.96);filter:brightness(1.4)}
+  17%{transform:var(--p) scale(1);filter:brightness(1)}
+  50%{opacity:1;color:#fff;transform:var(--p) translateY(0)}
+  56%{opacity:.45}58%{opacity:1}62%{opacity:.7;color:#ffe29a}64%{opacity:.25}66%{opacity:.9}
+  71%{opacity:.4;color:#ffb03a}73%{opacity:.75}78%{opacity:.2}80%{opacity:.55;filter:blur(.5px)}
+  86%{opacity:.12;color:#ff7a3a}88%{opacity:.35}94%{opacity:.06;filter:blur(1.5px)}
+  100%{opacity:0;color:#ff5a2a;transform:var(--p) translateY(14px);filter:blur(2px)}}
 
 /* ---------- HUD ---------- */
 #hud{position:fixed;top:0;left:0;right:0;display:grid;grid-template-columns:1fr auto 1fr;align-items:start;padding:14px 20px;pointer-events:none;font-family:Orbitron;z-index:4}
@@ -268,6 +284,9 @@ const SFX={
   shield(){tone('triangle',1300,620,.28,.14);tone('triangle',1950,930,.22,.07);noise(.2,.15,5000)},
   wrong(){tone('sawtooth',150,90,.26,.16);tone('square',104,70,.26,.07)},
   crash(){noise(1.3,.8,1400);tone('sine',75,24,1,.7)},
+  whistle(){tone('sine',600,2200,.5,.05);tone('sine',610,2230,.5,.03)},
+  pop(){noise(.6,.45,5200);tone('sine',180,40,.4,.3)},
+  sizzle(){for(let i=0;i<26;i++)noise(.03,rand(.04,.12)*(1-i/30),rand(6000,11000),i*.055+rand(0,.04))},
   win(){[523,659,784,1047,1319].forEach((f,i)=>tone('triangle',f,f,.3,.13,i*.085))},
   lose(){[392,330,262,196].forEach((f,i)=>tone('sawtooth',f,f*.97,.32,.09,i*.15))},
   spawn(){tone('sine',180,360,.18,.025)},
@@ -458,16 +477,17 @@ function gridRender(){
 const MAXP=7000;
 const pp=new Float32Array(MAXP*6),pc=new Float32Array(MAXP*6);
 const px=new Float32Array(MAXP),py=new Float32Array(MAXP),pvx=new Float32Array(MAXP),pvy=new Float32Array(MAXP),
-      pl=new Float32Array(MAXP),pml=new Float32Array(MAXP),pr=new Float32Array(MAXP),pg=new Float32Array(MAXP),pb=new Float32Array(MAXP);
+      pl=new Float32Array(MAXP),pml=new Float32Array(MAXP),pr=new Float32Array(MAXP),pg=new Float32Array(MAXP),pb=new Float32Array(MAXP),
+      pgrav=new Float32Array(MAXP),pflick=new Uint8Array(MAXP);
 let pHead=0;
 const pGeo=new THREE.BufferGeometry();
 pGeo.setAttribute('position',new THREE.BufferAttribute(pp,3));
 pGeo.setAttribute('color',new THREE.BufferAttribute(pc,3));
 const pMesh=new THREE.LineSegments(pGeo,new THREE.LineBasicMaterial({vertexColors:true,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));
 pMesh.frustumCulled=false;scene.add(pMesh);
-function emit(x,y,vx,vy,life,c){
+function emit(x,y,vx,vy,life,c,grav=0,flick=0){
   const i=pHead;pHead=(pHead+1)%MAXP;
-  px[i]=x;py[i]=y;pvx[i]=vx;pvy[i]=vy;pl[i]=pml[i]=life;pr[i]=c.r;pg[i]=c.g;pb[i]=c.b;
+  px[i]=x;py[i]=y;pvx[i]=vx;pvy[i]=vy;pl[i]=pml[i]=life;pr[i]=c.r;pg[i]=c.g;pb[i]=c.b;pgrav[i]=grav;pflick[i]=flick;
 }
 const tmpC=new THREE.Color();
 function burst(x,y,color,n,speed,life=.9){
@@ -481,8 +501,8 @@ function particlesStep(dt){
   for(let i=0;i<MAXP;i++){
     const o=i*6;
     if(pl[i]<=0){if(pc[o]||pc[o+1]||pc[o+2]||pc[o+3]){pc.fill(0,o,o+6)}continue}
-    pl[i]-=dt;pvx[i]*=drag;pvy[i]*=drag;px[i]+=pvx[i]*dt;py[i]+=pvy[i]*dt;
-    const f=Math.max(pl[i]/pml[i],0),k=f*f*2.2,tl=.045;
+    pl[i]-=dt;pvy[i]-=pgrav[i]*dt;pvx[i]*=drag;pvy[i]*=drag;px[i]+=pvx[i]*dt;py[i]+=pvy[i]*dt;
+    const f=Math.max(pl[i]/pml[i],0),k=f*f*2.2*(pflick[i]&&Math.random()<.45?.12:1),tl=.045;
     pp[o]=px[i];pp[o+1]=py[i];pp[o+2]=0;pp[o+3]=px[i]-pvx[i]*tl;pp[o+4]=py[i]-pvy[i]*tl;pp[o+5]=0;
     pc[o]=pr[i]*k;pc[o+1]=pg[i]*k;pc[o+2]=pb[i]*k;pc[o+3]=pr[i]*k*.2;pc[o+4]=pg[i]*k*.2;pc[o+5]=pb[i]*k*.2;
   }
@@ -501,6 +521,46 @@ function wavesStep(dt){
     const w=waves[i];w.t+=dt;const f=w.t/w.dur;
     if(f>=1){scene.remove(w.m);w.m.material.dispose();waves.splice(i,1);continue}
     const s=.5+w.size*(1-(1-f)**3);w.m.scale.set(s,s,1);w.m.material.opacity=(1-f)**1.5;
+  }
+}
+
+// ================= answer fireworks (shown when a problem crashes) =================
+const fws=[],FW_GOLD=new THREE.Color('#ffcf6a'),FW_WHITE=new THREE.Color('#ffffff');
+function firework(x,color,q,a){
+  x=clamp(x,-VW/2+14,VW/2-14);
+  fws.push({x,x0:x,y:SHIELD_Y+1,y0:SHIELD_Y+1,ty:Math.min(SHIELD_Y+VH*.4,VH/2-16),t:0,c:new THREE.Color(color),color,q,a,el:null,hiss:false});
+  SFX.whistle();
+}
+function fwBurst(f){
+  const {x,y,c}=f;
+  for(let i=0;i<220;i++){
+    const a=Math.random()*6.283,s=(i<150?rand(.8,1):rand(.2,.8))*48,col=i%5===0?FW_WHITE:i%3===0?FW_GOLD:c;
+    emit(x,y,Math.cos(a)*s,Math.sin(a)*s,rand(1.3,2.1),col,16,i%2);
+  }
+  shockwave(x,y,f.color,18,.6);shockwave(x,y,'#ffffff',9,.3);gridPush(x,y,180,22);
+  SFX.pop();aberr=Math.max(aberr,.006);
+  const [sx,sy]=toScreen(x,y),d=document.createElement('div');
+  d.className='fw';d.style.setProperty('--c',f.color);
+  d.style.setProperty('--p',`translate(${sx|0}px,${sy|0}px) translate(-50%,-50%)`);
+  d.innerHTML=`<span class="q">${f.q} =</span><span class="a">${f.a}</span>`;
+  d.addEventListener('animationend',()=>d.remove());labelsEl.appendChild(d);f.el=d;
+}
+function fireworksStep(dt){
+  for(let i=fws.length-1;i>=0;i--){
+    const f=fws[i];f.t+=dt;
+    if(f.t<.55){ // rocket climbing
+      const k=1-(1-f.t/.55)**2;f.y=f.y0+(f.ty-f.y0)*k;f.x=f.x0+Math.sin(f.t*22)*.35;
+      for(let j=0;j<5;j++)emit(f.x+rand(-.3,.3),f.y,rand(-5,5),rand(-14,-4),rand(.3,.6),j%2?FW_GOLD:FW_WHITE,20,1);
+    }else if(!f.el)fwBurst(f);
+    else{ // sizzle: crackling sparks drifting off the fading answer
+      const b=f.t-.55;
+      if(b>1.3&&!f.hiss){f.hiss=true;SFX.sizzle()}
+      if(b>1.2&&b<2.6){
+        const w=1.5+String(f.a).length*2.2,n=Math.random()<(2.6-b)/1.4*2.5?3:1;
+        for(let j=0;j<n;j++)emit(f.x+rand(-w,w),f.y+rand(-3.5,2.5),rand(-4,4),rand(-2,6),rand(.25,.6),Math.random()<.5?FW_GOLD:FW_WHITE,22,1);
+      }
+      if(b>2.7)fws.splice(i,1);
+    }
   }
 }
 
@@ -573,7 +633,7 @@ function removeEnemy(e){
 function killShot(s){scene.remove(s.m);s.m.material.dispose();shots.splice(shots.indexOf(s),1)}
 function clearField(){
   [...enemies].forEach(removeEnemy);[...shots].forEach(killShot);
-  labelsEl.querySelectorAll('.pop').forEach(n=>n.remove());
+  labelsEl.querySelectorAll('.pop,.fw').forEach(n=>n.remove());fws.length=0;
   buf='';renderInput();
 }
 
@@ -705,6 +765,7 @@ function crash(e){
   rec(e.prob.key,false,0);queueRetry(e.prob,e.src);G.log.push({key:e.prob.key,t:Infinity});
   burst(e.x,SHIELD_Y,'#ff2a6d',240,75,1.2);burst(e.x,SHIELD_Y,e.st.color,90,45);
   shockwave(e.x,SHIELD_Y,'#ff2a6d',32,.8);gridPush(e.x,SHIELD_Y,320,32);
+  const L=e.prob.layers[e.li];firework(e.x,e.st.color,L.t,L.a);
   SFX.crash();shake=1.8;aberr=.016;shieldFlash=1;
   removeEnemy(e);G.resolved++;updateHUD();
   if(G.lives<=0)endLevel(false);
@@ -942,10 +1003,11 @@ function frame(now){
         if(state==='menu'&&Math.random()<.55){burst(x,y,pick(PALETTE),70,38,1.1);shockwave(x,y,pick(PALETTE),9,.5)}
       }
     }
-    particlesStep(dt);wavesStep(dt);
+    fireworksStep(dt);particlesStep(dt);wavesStep(dt);
     gridStep(dt/2);gridStep(dt/2);
   }
   gridRender();
+  labelsEl.classList.toggle('frozen',state==='paused');
   // ship + shield
   const inGame=state==='play'||state==='ending'||state==='paused'||state==='intro';
   ship.visible=shieldLine.visible=inGame;
