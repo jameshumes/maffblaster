@@ -62,8 +62,12 @@ export function createTens(api){
     }
     cell('trule');
     for(let c=0;c<cols;c++)R.ansCells[cols-1-c]=cell('tans','',cols-1-c);
-    const tileCount=nums.length*places;
-    R.fuse=R.fuseMax=(tileCount*cfg.perTile+places*cfg.perSum+2)*save.settings.diff;
+    // the fuse shrinks every round. Its floor is keyed to your own pace for the moves needed,
+    // starting at 1.6x and tightening each wave until even a fast player eventually burns out
+    const tileCount=nums.length*places,G=api.G();
+    const base=(tileCount*cfg.perTile+places*cfg.perSum+2)*save.settings.diff;
+    const slack=Math.max(.85,1.6-.06*(G.wave-1));
+    R.fuse=R.fuseMax=Math.min(base,Math.max(base/(1+.12*G.resolved),(tileCount/2+places*2)*api.pace()*slack));
     T.round=R;T.phase='collapse';
     focusPlace();
   }
@@ -146,10 +150,10 @@ export function createTens(api){
   }
   function roundWon(){
     const R=T.round,G=api.G();
-    const bonus=Math.round(50*(R.fuse/R.fuseMax));G.score+=bonus;
+    const bonus=Math.round(50*(R.fuse/R.fuseMax));if(bonus)api.addScore(bonus);
     root.classList.add('done');SFX.chime();
     const [x,y]=elWorld(R.grid);burst(x,y,T.color,160,55,1.1);shockwave(x,y,T.color,16,.5);gridPush(x,y,90,18);
-    R.promptEl.textContent=bonus?`CLEAR · FUSE BONUS +${bonus}`:'CLEAR';
+    R.promptEl.textContent=bonus?'CLEAR · FUSE BONUS':'CLEAR';
     endRound(.9);
   }
   function endRound(wait){
@@ -166,7 +170,6 @@ export function createTens(api){
     const R=T.round,[x,y]=elWorld(R.grid);
     String(R.total).split('').reverse().forEach((ch,i)=>{const c=R.ansCells[i];if(c){c.textContent=ch;c.classList.add('reveal')}});
     R.promptEl.textContent='FUSE OUT';
-    const G=api.G();G.combo=0;
     api.crash(x,y,R.total);
     endRound(save.settings.mode==='hard'?1.4:2.6);
   }
@@ -174,14 +177,17 @@ export function createTens(api){
   function update(dt){
     if(!T)return;
     if(T.phase==='wait'){
-      if((T.wait-=dt)<=0){const G=api.G();if(G.resolved<G.lv.count&&G.lives>0)newRound();else T.phase='idle'}
+      if((T.wait-=dt)<=0){if(api.G().lives>0)newRound();else T.phase='idle'}
       return;
     }
     if(T.phase==='idle')return;
-    const R=T.round;R.fuse-=dt;
+    const R=T.round;R.fuse-=dt*api.timeScale();
     R.fuseEl.firstChild.style.width=Math.max(0,R.fuse/R.fuseMax*100)+'%';
     R.fuseEl.classList.toggle('low',R.fuse/R.fuseMax<.25);
-    if(R.fuse<=0)fuseOut();
+    if(R.fuse<=0){
+      if(api.useNova()){R.fuse=R.fuseMax*.6;const [x,y]=elWorld(R.fuseEl);burst(x,y,'#fff23a',160,50,.9);shockwave(x,y,'#fff23a',20,.6)}
+      else fuseOut();
+    }
   }
 
   // returns true when the key was used

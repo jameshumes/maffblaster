@@ -44,12 +44,78 @@ let state='chapters',G=null,enemies=[],shots=[],buf='',gtime=0;
 let chapter=chapterById(save.settings.chapter);
 const shotGeo=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,-1.6,0),new THREE.Vector3(0,1.6,0)]);
 const shotColor=new THREE.Color('#fff6c0');
-const mult=()=>Math.min(8,1+Math.floor(G.combo/5));
+const mult=()=>G.mult;
 const worldOf=lv=>lv.ch.worlds[lv.w];
+
+// ================= endless runs (Geometry Wars scoring) =================
+// A run only ends when your shields are gone. Every wave asks for ~25% more answers per
+// second, but no single problem falls faster than ~2.4x your own recent answer time, so
+// a hard problem is always solvable; the pressure comes from volume.
+// Score = enemy value x wave x multiplier. The multiplier climbs +1 per correct answer,
+// halves on a wrong answer and resets on a shield hit, so long clean streaks deep into
+// the waves are worth orders of magnitude more than a decent run.
+const MAX_MULT=999;
+const waveSize=lv=>lv.game==='tens'?3:10;
+const unitPts=lv=>lv.game==='tens'?15:lv.mix?lv.mix.reduce((a,id)=>a+LV[id].pts,0)/lv.mix.length:lv.pts;
+const nice=v=>{const p=10**Math.max(0,Math.floor(Math.log10(v))-1);return Math.round(v/p)*p};
+// score of k straight answers with the multiplier climbing 1 per answer
+function series(k,ws){let s=0;for(let i=1;i<=k;i++)s+=i*(1+Math.floor(i/ws));return s}
+function goalsFor(lv){
+  const t=lv.game==='tens',B=unitPts(lv)*10*1.5,k=t?lv.count*6:lv.count,ws=t?18:10;
+  return[nice(B*series(k,ws)*.35),nice(B*series(Math.round(k*1.6),ws)*.6),nice(B*series(Math.round(k*2.4),ws)*1.1)];
+}
+const starsFor=(score,goals)=>goals.filter(g=>score>=g).length;
+const STAR_NAME=['','BRONZE','SILVER','GOLD'],STAR_COLOR=['#7d93b8','#e08a4a','#cfe0ff','#ffd84a'];
+const ramp=()=>1+.25*(G.wave-1); // answers/second multiplier
+function pace(){const t=G.times.slice(-8);return t.length?t.reduce((a,b)=>a+b,0)/t.length:G.lv.par}
+const timeScale=()=>G.buffs.slow>0?.45:1;
+const speedBonus=(t,par)=>1+clamp((par*2-t)/(par*2),0,1);
+// base points for an answer: worth more every wave, then multiplied
+function addScore(base,multiplied=true){
+  const p=Math.round(base*10*G.wave*(multiplied?G.mult:1)*(G.buffs.over>0?2:1));
+  const before=starsFor(G.score,G.goals);G.score+=p;
+  const after=starsFor(G.score,G.goals);
+  if(after>before){toast(STAR_NAME[after]+' '+'★'.repeat(after),STAR_COLOR[after],`${G.goals[after-1].toLocaleString()} reached`);SFX.star()}
+  return p;
+}
+function onHit(t){
+  G.times.push(t);G.hits++;G.combo++;G.bestCombo=Math.max(G.bestCombo,G.combo);
+  G.mult=Math.min(MAX_MULT,G.mult+1);G.bestMult=Math.max(G.bestMult,G.mult);
+  if(G.combo%10===0)grantBuff();
+}
+function onWrong(){G.misses++;G.combo=0;G.mult=Math.max(1,Math.floor(G.mult/2))}
+function onShieldHit(){G.lives--;G.crashes++;G.combo=0;G.mult=1}
+function onResolved(){
+  G.resolved++;const w=1+Math.floor(G.resolved/waveSize(G.lv));
+  if(w>G.wave){G.wave=w;toast(`WAVE ${w}`,'#22e6ff','faster · worth more');SFX.wave()}
+}
+// streak rewards: every 10 in a row
+const BUFFS={
+  slow:{name:'SLOW-MO',color:'#22e6ff',dur:6,sub:'6 seconds'},
+  over:{name:'OVERDRIVE',color:'#ff3df0',dur:8,sub:'×2 score · 8 seconds'},
+  nova:{name:'NOVA',color:'#fff23a',sub:'saves your next hit'},
+  shield:{name:'+1 SHIELD',color:'#4dff6a',sub:'shield restored'},
+};
+function grantBuff(){
+  const opts=['slow','over','over'];
+  if(G.buffs.nova<2)opts.push('nova','nova');
+  if(G.lives<G.maxLives)opts.push('shield','shield','shield');
+  const k=pick(opts),b=BUFFS[k];
+  if(k==='shield')G.lives++;else if(k==='nova')G.buffs.nova++;else G.buffs[k]=b.dur;
+  toast(b.name,b.color,`${G.combo} streak · ${b.sub}`);SFX.buff();updateHUD();
+}
+function buffsStep(dt){for(const k of ['slow','over'])if(G.buffs[k]>0)G.buffs[k]=Math.max(0,G.buffs[k]-dt)}
+// spend a nova instead of losing a shield (keeps the multiplier alive)
+function useNova(){if(G.buffs.nova<=0)return false;G.buffs.nova--;toast('NOVA','#fff23a','shield saved · multiplier kept');updateHUD();return true}
+function toast(text,color,sub=''){
+  const d=document.createElement('div');d.className='toast';d.style.setProperty('--c',color);
+  d.innerHTML=text+(sub?`<small>${sub}</small>`:'');
+  d.addEventListener('animationend',()=>d.remove());$('toasts').appendChild(d);
+}
 
 function newRun(lv){
   G={lv,t:0,spawned:0,resolved:0,lives:5,maxLives:5,score:0,combo:0,bestCombo:0,hits:0,misses:0,crashes:0,
-     times:[],log:[],lastShot:0,spawnT:.8,queue:[],recent:[],ending:0,won:false};
+     times:[],log:[],lastShot:0,spawnT:.8,queue:[],recent:[],ending:0,wave:1,mult:1,bestMult:1,goals:goalsFor(lv),buffs:{slow:0,over:0,nova:0}};
 }
 function removeEnemy(e){
   scene.remove(e.g);e.g.children.forEach(c=>c.material.dispose());e.el.remove();
@@ -58,18 +124,24 @@ function removeEnemy(e){
 function killShot(s){scene.remove(s.m);s.m.material.dispose();shots.splice(shots.indexOf(s),1)}
 function clearField(){
   [...enemies].forEach(removeEnemy);[...shots].forEach(killShot);
-  labelsEl.querySelectorAll('.pop').forEach(n=>n.remove());clearFireworks();
+  labelsEl.querySelectorAll('.pop').forEach(n=>n.remove());clearFireworks();$('toasts').innerHTML='';
   tens.stop();hideChoices();target=null;
   buf='';renderInput();
 }
 
 // ---------- multiple choice (easy / kids) ----------
 let choiceCb=null,choiceVals=[];
+// digits can't pick between numbers, so choices use arrows (DDR order) or the home row
+const CHOICE_KEYS={4:[['ArrowLeft','d'],['ArrowDown','f'],['ArrowUp','j'],['ArrowRight','k']],
+                   3:[['ArrowLeft','f'],['ArrowUp','ArrowDown','g','h'],['ArrowRight','j']]};
+const ARROW={ArrowLeft:'←',ArrowDown:'↓',ArrowUp:'↑',ArrowRight:'→'};
+const choiceIndex=k=>{const ks=CHOICE_KEYS[choiceVals.length]||[];k=k.length===1?k.toLowerCase():k;return ks.findIndex(a=>a.includes(k))};
 function showChoices(L,cb){
   choiceVals=makeChoices(L,mode()==='kids'?3:4);choiceCb=cb;
   const el=$('choices');el.innerHTML='';
   choiceVals.forEach((v,i)=>{
-    const b=document.createElement('button');b.className='choice';b.innerHTML=`<kbd>${i+1}</kbd>${v}`;
+    const keys=CHOICE_KEYS[choiceVals.length][i],b=document.createElement('button');b.className='choice';
+    b.innerHTML=`<kbd>${ARROW[keys[0]]} ${keys[keys.length-1].toUpperCase()}</kbd>${v}`;
     b.addEventListener('pointerdown',ev=>{ev.preventDefault();audio();pickChoice(i)});
     el.appendChild(b);
   });
@@ -93,7 +165,7 @@ function retarget(){
   showChoices(t.prob.layers[t.li],v=>{
     if(target!==t||t.pending)return true;
     if(v===t.prob.layers[t.li].a){fire(t);return true}
-    G.misses++;G.combo=0;SFX.wrong();FX.aberr=Math.max(FX.aberr,.007);queueRetry(t.prob,t.src);updateHUD();
+    onWrong();SFX.wrong();FX.aberr=Math.max(FX.aberr,.007);queueRetry(t.prob,t.src);updateHUD();
     return false;
   });
 }
@@ -101,19 +173,18 @@ function retarget(){
 // ---------- 10s column game ----------
 const tens=createTens({
   G:()=>G,
-  hit(t,pts){
-    G.times.push(t);G.hits++;G.combo++;G.bestCombo=Math.max(G.bestCombo,G.combo);
-    G.score+=Math.round(pts*mult()*(1+clamp((G.lv.par*2-t)/(G.lv.par*2),0,1)));updateHUD(true);
-  },
-  miss(){G.misses++;G.combo=0;SFX.wrong();FX.aberr=Math.max(FX.aberr,.007);inputBad();updateHUD()},
+  hit(t,pts){onHit(t);addScore(pts*speedBonus(t,G.lv.par));updateHUD(true)},
+  addScore(p){addScore(p);updateHUD()},
+  pace,timeScale,useNova,
+  miss(){onWrong();SFX.wrong();FX.aberr=Math.max(FX.aberr,.007);inputBad();updateHUD()},
   crash(x,y,total){
-    G.lives--;G.crashes++;
+    onShieldHit();
     burst(x,y,'#ff2a6d',240,75,1.2);shockwave(x,y,'#ff2a6d',32,.8);gridPush(x,y,320,32);
     if(mode()!=='hard')firework(V.VW*.3,worldOf(G.lv).color,'TOTAL',total);
     SFX.crash();FX.shake=1.8;FX.aberr=.016;updateHUD();
-    if(G.lives<=0)endLevel(false);
+    if(G.lives<=0)endLevel();
   },
-  roundDone(){G.resolved++;updateHUD()},
+  roundDone(){onResolved();updateHUD()},
   setInput(s){$('input').textContent=s},
   showChoices(L,cb){showChoices(L,v=>{const ok=v===L.a;cb(v);return ok})},
   hideChoices,
@@ -138,8 +209,9 @@ function queueRetry(prob,src){
 }
 function gapFor(){
   const lv=G.lv,d=save.settings.diff;
-  return lv.mix?2.6*d*(1-.3*G.spawned/lv.count):lv.fall*d/(lv.conc+.6);
+  return Math.max(.35,(lv.mix?2.6*d:lv.fall*d/(lv.conc+.6))/ramp());
 }
+const concCap=()=>Math.min(8,G.lv.conc+Math.floor((G.wave-1)/2));
 function spawnEnemy({prob,src}){
   const st=STYLES[src.kind],g=new THREE.Group(),n=prob.layers.length;
   g.add(new THREE.LineLoop(polyGeo(st.sides,st.r,st.inner,st.rot),glowMat(st.color,2.3)));
@@ -149,8 +221,8 @@ function spawnEnemy({prob,src}){
   const R=st.r+1.3*(n-1),lim=Math.max(8,Math.min(V.VW/2-10,55));
   let x=0,best=-1;
   for(let k=0;k<10;k++){const cx=rand(-lim,lim);let md=99;for(const e of enemies)if(e.y>V.VH/2-22)md=Math.min(md,Math.abs(e.x-cx));if(md>best){best=md;x=cx}}
-  const y=V.VH/2-R-2,prog=G.spawned/G.lv.count;
-  const fall=(G.lv.mix?src.fall*(.95-.35*prog):src.fall)*save.settings.diff;
+  const y=V.VH/2-R-2,base=src.fall*save.settings.diff;
+  const fall=Math.min(base,Math.max(base/ramp(),2.4*pace()*n+1.5));
   const el=document.createElement('div');el.className='lbl';el.style.setProperty('--c',st.color);labelsEl.appendChild(el);
   const hintOn=src.hintFrac&&(G.lv.mix?Math.random()<.25:G.spawned<G.lv.count*src.hintFrac);
   const e={prob,src,st,g,rings,el,x,y,vy:(y-V.SHIELD_Y)/fall,R,li:0,spawnT:G.t,layerT:G.t,age:0,
@@ -193,7 +265,7 @@ function submit(){
 }
 function inputBad(){const inp=$('input');inp.classList.remove('bad');void inp.offsetWidth;inp.classList.add('bad')}
 function miss(){
-  G.misses++;G.combo=0;SFX.wrong();FX.aberr=Math.max(FX.aberr,.007);inputBad();
+  onWrong();SFX.wrong();FX.aberr=Math.max(FX.aberr,.007);inputBad();
   const l=live();
   if(l.length===1){recFact(l[0].prob.key,false,0);queueRetry(l[0].prob,l[0].src)}
   updateHUD();
@@ -201,9 +273,9 @@ function miss(){
 function fire(e){
   const last=e.li===e.prob.layers.length-1;
   const t=Math.max(.3,G.t-Math.max(e.layerT,G.lastShot));G.lastShot=G.t;
-  G.times.push(t);G.hits++;G.combo++;G.bestCombo=Math.max(G.bestCombo,G.combo);
-  const pts=Math.round(e.src.pts*mult()*(1+clamp((e.src.par*2-t)/(e.src.par*2),0,1)));
-  G.score+=pts;popup(e.x,e.y+e.R+4,'+'+pts,e.st.color);
+  onHit(t);
+  const pts=addScore(e.src.pts*speedBonus(t,e.src.par));
+  popup(e.x,e.y+e.R+4,'+'+pts.toLocaleString(),e.st.color);
   if(last){recFact(e.prob.key,true,t);G.log.push({key:e.prob.key,t})}
   e.pending=true;
   const m=new THREE.Line(shotGeo,glowMat('#ffffff',3.5));m.position.set(0,V.SHIP_Y+2,0);scene.add(m);
@@ -240,29 +312,37 @@ function kill(e){
   if(big)shockwave(e.x,e.y,'#ffffff',14,.35);
   gridPush(e.x,e.y,big?260:140,big?28:17);
   SFX.boom(big);FX.shake=Math.max(FX.shake,big?1:.25);FX.aberr=Math.max(FX.aberr,big?.01:.003);
-  removeEnemy(e);G.resolved++;updateHUD();
+  removeEnemy(e);onResolved();updateHUD();
+}
+// a nova wipes the screen instead of letting an enemy through
+function nova(){
+  shockwave(0,V.SHIELD_Y,'#fff23a',V.VW*.7,1);shockwave(0,V.SHIELD_Y,'#ffffff',V.VW*.4,.7);gridPush(0,V.SHIELD_Y,600,V.VW*.8);
+  for(const e of [...enemies]){addScore(e.src.pts);kill(e)}
+  SFX.boom(true);FX.shake=1.2;FX.aberr=.014;FX.shieldFlash=1;
 }
 function crash(e){
-  G.lives--;G.crashes++;G.combo=0;
+  onShieldHit();
   recFact(e.prob.key,false,0);queueRetry(e.prob,e.src);G.log.push({key:e.prob.key,t:Infinity});
   burst(e.x,V.SHIELD_Y,'#ff2a6d',240,75,1.2);burst(e.x,V.SHIELD_Y,e.st.color,90,45);
   shockwave(e.x,V.SHIELD_Y,'#ff2a6d',32,.8);gridPush(e.x,V.SHIELD_Y,320,32);
   if(mode()!=='hard'){const L=e.prob.layers[e.li];firework(e.x,e.st.color,L.t,L.a)}
   SFX.crash();FX.shake=1.8;FX.aberr=.016;FX.shieldFlash=1;
-  removeEnemy(e);G.resolved++;updateHUD();
-  if(G.lives<=0)endLevel(false);
+  removeEnemy(e);onResolved();updateHUD();
+  if(G.lives<=0)endLevel();
 }
 function updateEnemies(dt){
+  const ts=timeScale();
   for(const e of [...enemies]){
+    if(!enemies.includes(e))continue; // a nova may have cleared it
     e.age+=dt;
-    if(!e.pending)e.y-=e.vy*dt;
+    if(!e.pending)e.y-=e.vy*dt*ts;
     e.x+=Math.sin(e.age*e.wf+e.ph)*e.wa*dt;
     e.g.rotation.z+=e.spin*dt*.6;
     e.rings.forEach((r,i)=>r.rotation.z=-e.g.rotation.z*(2+i));
     e.flash=Math.max(0,e.flash-dt*4);
     const s=Math.min(1,e.age*2.5)*(1+e.flash*.35);e.g.scale.set(s,s,1);
     gridPush(e.x,e.y,10*dt,e.R*2.4);
-    if(!e.pending&&e.y-e.R<=V.SHIELD_Y)crash(e);
+    if(!e.pending&&e.y-e.R<=V.SHIELD_Y){if(useNova())nova();else crash(e)}
   }
   const lim=V.VW/2-6;
   for(let i=0;i<enemies.length;i++)for(let j=i+1;j<enemies.length;j++){
@@ -282,16 +362,13 @@ function placeLabels(){
 // ---------- level flow ----------
 function updatePlay(dt){
   G.t+=dt;
-  if(tens.active){
-    tens.update(dt);
-    if(state==='play'&&!tens.busy)endLevel(G.lives>0);
-  }else{
+  if(state==='play'){buffsStep(dt);renderBuffs()}
+  if(tens.active)tens.update(dt);
+  else{
     if(state==='play'){
-      if(G.spawned<G.lv.count){
-        if(!enemies.length)G.spawnT=Math.min(G.spawnT,.5);
-        G.spawnT-=dt;
-        if(G.spawnT<=0&&enemies.length<G.lv.conc){const n=nextProblem();if(n)spawnEnemy(n);G.spawnT=gapFor()}
-      }else if(!enemies.length&&!shots.length)endLevel(true);
+      if(!enemies.length)G.spawnT=Math.min(G.spawnT,.5);
+      G.spawnT-=dt*timeScale();
+      if(G.spawnT<=0&&enemies.length<concCap()){const n=nextProblem();if(n)spawnEnemy(n);G.spawnT=gapFor()}
       if(choiceMode())retarget();
     }
     updateEnemies(dt);shotsStep(dt);
@@ -319,10 +396,11 @@ function startLevel(lv){
   $('intro').style.setProperty('--c',w.color);
   $('iWorld').textContent=`${lv.ch.name} · WORLD ${lv.w+1} · ${w.name}`;
   $('iName').textContent=lv.name;$('iTip').innerHTML=lv.tip;
+  $('iGoals').innerHTML=`ENDLESS · faster every wave · ${G.goals.map((g,i)=>`<span style="color:${STAR_COLOR[i+1]}">${'★'.repeat(i+1)}</span> ${g.toLocaleString()}`).join(' &nbsp; ')}`;
   const m=mode(),ch=choiceMode();
   $('iHint').textContent=lv.game==='tens'
-    ?`Type digits that make 10 to collapse them. Then type the column total${ch?' (or pick it: keys 1–4)':''}. SPACE clears. ESC pauses.`
-    :ch?'Pick the answer for the targeted enemy (▼): keys 1–4 or tap. ESC pauses.'
+    ?`Type digits that make 10 to collapse them. Then ${ch?'pick the column total with ← ↓ ↑ → (or D F J K)':'type the column total'}. SPACE clears. ESC pauses.`
+    :ch?'Pick the answer for the targeted enemy (▼) with ← ↓ ↑ → or D F J K, or tap it. ESC pauses.'
     :`Type the answer to fire. Auto-fires on an exact match; ENTER forces a shot. BACKSPACE edits, SPACE clears. ESC pauses.${m==='hard'?' HARD: no answer reveal on a miss.':''}`;
   show('intro');
 }
@@ -333,39 +411,41 @@ function beginPlay(){
   if(G.lv.game==='tens')tens.start(G.lv,worldOf(G.lv).color);
   updateHUD();
 }
-function endLevel(win){
+function endLevel(){
   if(state!=='play')return;
-  state='ending';G.won=win;G.ending=win?1.3:2;buf='';renderInput();hideChoices();
-  if(win)SFX.win();
-  else{for(const e of [...enemies]){burst(e.x,e.y,e.st.color,90,40);removeEnemy(e)}SFX.lose()}
+  state='ending';G.ending=2.2;buf='';renderInput();hideChoices();
+  for(const e of [...enemies]){burst(e.x,e.y,e.st.color,90,40);removeEnemy(e)}
+  if(starsFor(G.score,G.goals))SFX.win();else SFX.lose();
 }
 function showResults(){
   state='results';hidePlayUI();tens.stop();
   const lv=G.lv,w=worldOf(lv),att=G.hits+G.misses+G.crashes;
   const acc=att?G.hits/att:0,avg=G.times.length?G.times.reduce((a,b)=>a+b,0)/G.times.length:0;
-  let stars=0;
-  if(G.won){stars=1;if(acc>=.85&&G.lives>=G.maxLives-1)stars=2;if(acc>=.95&&G.lives===G.maxLives&&avg<=lv.par)stars=3}
+  const stars=starsFor(G.score,G.goals);
   const key=levelKey(lv.id),r=save.levels[key]||{stars:0,best:0};
   const newBest=G.score>r.best;
   r.stars=Math.max(r.stars,stars);r.best=Math.max(r.best,G.score);save.levels[key]=r;persist();
   $('results').style.setProperty('--c',w.color);
   $('rKick').textContent=lv.name.toUpperCase()+(mode()!=='normal'?` · ${mode().toUpperCase()}`:'');
-  $('rTitle').textContent=G.won?'SECTOR CLEAR':'SHIELDS DOWN';
+  $('rTitle').textContent=stars?STAR_NAME[stars]:'NOT YET';
   $('rStars').innerHTML=[0,1,2].map(k=>k<stars?`<i style="animation-delay:${.2+k*.25}s">★</i>`:'<s>★</s>').join('');
-  $('rStats').innerHTML=`<div><b>${G.score.toLocaleString()}</b><span>${newBest?'new best!':'score'}</span></div><div><b>${Math.round(acc*100)}%</b><span>accuracy</span></div><div><b>${avg.toFixed(1)}s</b><span>avg / answer (par ${lv.par}s)</span></div><div><b>${G.bestCombo}</b><span>best combo</span></div>`;
+  $('rStats').innerHTML=`<div><b>${G.score.toLocaleString()}</b><span>${newBest?'new best!':'score'}</span></div><div><b>${Math.round(acc*100)}%</b><span>accuracy</span></div><div><b>${G.wave}</b><span>wave reached</span></div><div><b>×${G.bestMult}</b><span>best multiplier</span></div>`;
   const isFact=l=>!l.key.startsWith('~');
   const missed=[...new Set(G.log.filter(l=>l.t===Infinity&&isFact(l)).map(l=>l.key))];
   const slow=G.log.filter(l=>l.t!==Infinity&&isFact(l)).sort((a,b)=>b.t-a.t).slice(0,4);
-  let tip='';
+  let tip=`<b>Goals:</b> ${G.goals.map((g,i)=>`${'★'.repeat(i+1)} ${g.toLocaleString()}`).join(' · ')}<br><b>Avg</b> ${avg.toFixed(1)}s / answer · <b>${Math.round(acc*100)}%</b> accuracy · <b>best streak</b> ${G.bestCombo}<br>`;
   if(missed.length)tip+=`<b>Got through:</b> ${missed.slice(0,6).map(fmtKey).join(', ')}<br>`;
   if(slow.length)tip+=`<b>Slowest:</b> ${slow.map(l=>`${fmtKey(l.key)} (${l.t.toFixed(1)}s)`).join(', ')}<br>`;
-  tip+=stars===3?'Flawless and fast. On to the next one.':G.won?`3 stars needs ≥95% accuracy, no shield damage, and avg ≤ ${lv.par}s. These facts will come back more often.`:'Try Relaxed speed on the menu if this is too fast. Accuracy first, speed follows.';
+  tip+=stars===3?'Gold. Move on, or come back and see how high it goes.'
+    :stars?`${(G.goals[stars]-G.score).toLocaleString()} more for ${'★'.repeat(stars+1)}. The multiplier is everything: a wrong answer halves it, a shield hit resets it.`
+    :'Try Relaxed speed on the menu if this is too fast. Accuracy first: the multiplier only grows while you stay clean.';
   $('rTip').innerHTML=tip;
   const nxt=lv.ch.levels[lv.i+1];
-  $('bNext').innerHTML=G.won?(nxt?'NEXT <kbd>ENTER</kbd>':'MENU <kbd>ENTER</kbd>'):'RETRY <kbd>ENTER</kbd>';
+  $('bNext').innerHTML=stars?(nxt?'NEXT <kbd>ENTER</kbd>':'MENU <kbd>ENTER</kbd>'):'RETRY <kbd>ENTER</kbd>';
+  G.stars=stars;
   show('results');
 }
-function resultsNext(){const nxt=G.lv.ch.levels[G.lv.i+1];if(!G.won)startLevel(G.lv);else if(nxt)startLevel(nxt);else showMenu()}
+function resultsNext(){const nxt=G.lv.ch.levels[G.lv.i+1];if(!G.stars)startLevel(G.lv);else if(nxt)startLevel(nxt);else showMenu()}
 function pause(){if(state!=='play')return;state='paused';show('pause');persist()}
 function resume(){if(state!=='paused')return;state='play';show('pause',false)}
 
@@ -373,13 +453,23 @@ function resume(){if(state!=='paused')return;state='play';show('pause',false)}
 function renderInput(){$('input').textContent=buf}
 function updateHUD(bump){
   if(!G)return;
-  $('lvName').textContent=G.lv.name;
-  $('prog').style.width=(G.resolved/G.lv.count*100)+'%';
+  $('lvName').textContent=`${G.lv.name} · WAVE ${G.wave}`;
+  const s=starsFor(G.score,G.goals),prev=s?G.goals[s-1]:0,next=G.goals[s];
+  const bar=$('prog');bar.style.width=(s<3?(G.score-prev)/(next-prev)*100:100)+'%';bar.style.setProperty('--c',STAR_COLOR[Math.min(3,s+1)]);
+  $('goalTxt').innerHTML=s<3?`<span style="color:${STAR_COLOR[s+1]}">${'★'.repeat(s+1)}</span> at ${next.toLocaleString()}`:`<span style="color:${STAR_COLOR[3]}">★★★ GOLD</span>`;
   $('score').textContent=G.score.toLocaleString();
-  const c=$('combo');c.textContent=G.combo>1?`COMBO ${G.combo} · ×${mult()}`:'';
-  if(bump&&G.combo>1){c.classList.remove('bump');void c.offsetWidth;c.classList.add('bump')}
+  const c=$('combo');c.innerHTML=`×${G.mult}`+(G.combo>1?`<small>STREAK ${G.combo}</small>`:'');
+  if(bump){c.classList.remove('bump');void c.offsetWidth;c.classList.add('bump')}
   const l=Math.max(0,G.lives);
   $('lives').innerHTML='◆'.repeat(l)+'<s>'+'◆'.repeat(G.maxLives-l)+'</s>';
+  renderBuffs();
+}
+function renderBuffs(){
+  const B=G.buffs,o=[];
+  if(B.slow>0)o.push(`<i style="--c:#22e6ff">SLOW ${Math.ceil(B.slow)}s</i>`);
+  if(B.over>0)o.push(`<i style="--c:#ff3df0">×2 ${Math.ceil(B.over)}s</i>`);
+  if(B.nova>0)o.push(`<i style="--c:#fff23a">NOVA${B.nova>1?' ×'+B.nova:''}</i>`);
+  const h=o.join('');if($('buffs').innerHTML!==h)$('buffs').innerHTML=h;
 }
 
 // ---------- chapter picker + level menu ----------
@@ -489,7 +579,7 @@ $('mcv').addEventListener('mouseleave',()=>$('mtip').classList.add('hidden'));
 // ---------- input ----------
 // a key during play; returns true if it was used
 function playKey(k){
-  if(choiceCb&&k.length===1&&k>='1'&&k<='9'){pickChoice(+k-1);return true}
+  if(choiceCb){const i=choiceIndex(k);if(i>=0){pickChoice(i);return true}}
   if(tens.active)return tens.key(k);
   if(choiceMode())return false;
   if(k.length===1&&k>='0'&&k<='9'){typeDigit(k);return true}

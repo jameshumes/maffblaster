@@ -15,11 +15,12 @@
 <canvas id="gl"></canvas>
 <div id="labels"></div>
 <div id="tens" class="hidden"></div>
+<div id="toasts"></div>
 
 <div id="hud" class="hidden">
-  <div><div id="lvName"></div><div class="bar"><i id="prog"></i></div></div>
+  <div><div id="lvName"></div><div class="bar"><i id="prog"></i></div><div id="goalTxt"></div></div>
   <div id="score">0</div>
-  <div class="hr"><div id="combo"></div><div id="lives"></div></div>
+  <div class="hr"><div id="combo"></div><div id="lives"></div><div id="buffs"></div></div>
 </div>
 <div id="inputWrap" class="hidden"><div id="input"></div></div>
 <div id="choices" class="hidden"></div>
@@ -53,6 +54,7 @@
   <div class="panel card-big">
     <div class="kicker" id="iWorld"></div>
     <div class="big" id="iName"></div>
+    <div class="goals" id="iGoals"></div>
     <div class="tip" id="iTip"></div>
     <div class="row"><button class="btn" id="bGo">LAUNCH <kbd>ENTER</kbd></button><button class="btn alt" id="bBack">BACK <kbd>ESC</kbd></button></div>
     <div class="hint" id="iHint"></div>

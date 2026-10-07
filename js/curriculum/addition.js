@@ -88,7 +88,7 @@ export const LEVELS=[
   {id:'as3',w:6,kind:'sub',name:'2-Digit Subtraction',gen:sub2,make:mk.sub,count:24,conc:3,fall:13,par:4,pts:30,
    tip:`<b>83 − 47</b>: 83 − 40 = 43, − 7 → <b>36</b>. Or count up: 47 → 50 is 3, 50 → 83 is 33 → <b>36</b>.`},
   {id:'ax1',w:7,kind:'mix',name:'The Gauntlet',mix:['ab4','ab6','ab8','ab9','ag1','as1','as2','as3'],count:60,conc:4,fall:1,par:3,pts:1,
-   tip:`Every addition and subtraction type, accelerating as you go. Survive 60.`},
+   tip:`Every addition and subtraction type at once, accelerating every wave.`},
 ];
 
 export default {id:'add',name:'ADDITION',sub:'make ten to 4-term sums',color:'#4dff6a',

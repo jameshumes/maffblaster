@@ -82,8 +82,10 @@ export const LEVELS=[
   {id:'b3',w:6,kind:'boss',layers:1,name:'Boss: Naked',gen:()=>[nt(12,99),nt(12,99)],make:mk.boss,count:12,conc:2,fall:40,par:14,pts:200,
    tip:`No shields. Pick your weapon: <b>split</b> (40×36 + 7×36), <b>round</b> (50×36 − 36), <b>twins</b> (47×53), <b>halve & double</b> (24×35 = 12×70), or <b>factor</b>.`},
   {id:'g1',w:7,kind:'mix',name:'The Gauntlet',mix:['t3','e4','s1','m2','p1','p2','p3','p4','w1','b3'],count:60,conc:4,fall:1,par:5,pts:1,
-   tip:`Every enemy type, accelerating as you go. Survive 60.`},
-];
+   tip:`Every enemy type at once, accelerating every wave. How long can you hold the multiplier?`},
+];// table levels just multiply their pair
+for(const lv of LEVELS)if(!lv.make&&!lv.mix)lv.make=mk.mul;
+
 export default {id:'mul',name:'MULTIPLICATION',sub:'tables to 2-digit × 2-digit',color:'#ff2a6d',
   worlds:WORLDS,levels:LEVELS,
   mastery:{from:2,to:20,key:fkey,sym:'×',calc:(a,b)=>a*b,squares:true,match:k=>k.includes('x')}};
