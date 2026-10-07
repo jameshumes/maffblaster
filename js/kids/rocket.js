@@ -138,9 +138,9 @@ function create(K){
     else{S.spin=.8;K.sfx.oops();K.shake=.5;K.parts.puff(x,RY()-20,10,'#9ca3af',26)}
   }
   async function bubbleRound({prob,demo=false,guided=false}){
-    const vals=choicesFor(prob.ans),ans=vals.indexOf(prob.ans),y0=K.h*.4;
+    const vals=choicesFor(prob.ans,prob.step),ans=vals.indexOf(prob.ans),y0=K.h*.4;
     S.prob=prob;S.probPop=0;S.solved=false;
-    const r={vals,ans,hold:true,guided,done:false,y:y0,y0,t:0,T:4.4*K.speed,fade:0};S.rows.push(r);
+    const r={vals,ans,hold:true,guided,done:false,y:y0,y0,t:0,T:4.4*K.speed*(prob.think||1),fade:0};S.rows.push(r);
     await K.say(demo?'narrator':pick(['narrator','narrator','kitty']),prob.say);
     if(demo){
       await K.say('narrator','Watch me!');

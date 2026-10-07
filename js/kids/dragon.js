@@ -6,15 +6,17 @@ import {emo,rr,txt,lerp,ease,colorText} from './draw.js';
 import {NUM_COLORS} from './problems.js';
 
 const SNACKS=[{e:'🍓',many:'strawberries'},{e:'🍪',many:'cookies'},{e:'🫐',many:'blueberries'},{e:'🍎',many:'apples'},{e:'🧁',many:'cupcakes'},{e:'🌶️',many:'hot peppers',hot:1},{e:'🍩',many:'donuts'},{e:'🍇',many:'grapes'}];
-const WORDS=['zero','One!','Two!','Three!','Four!','Five!','Six!','Seven!','Eight!','Nine!','Ten!'];
+// snacks worth more than one: cherries come in pairs, grape bunches are 5, chocolate bars are 10
+const PACKS={2:{e:'🍒',many:'cherries',say:'Cherries come in pairs!'},5:{e:'🍇',many:'grapes',say:'Each bunch has 5 grapes!'},10:{e:'🍫',many:'chocolate squares',say:'Each chocolate bar has 10 squares!'}};
 const SK=[
-  {id:'feed5',name:'Count to 5',icon:'🖐️',gen:()=>({target:ri(2,5),start:0,outline:true})},
-  {id:'feed10',name:'Count to 10',icon:'🔟',gen:()=>({target:ri(5,10),start:0,outline:false})},
-  {id:'more5',name:'Make 5',icon:'➕',gen:()=>{const s=ri(1,4);return{target:5,start:s,outline:true}}},
-  {id:'more10',name:'Make 10',icon:'🤝',gen:()=>{const s=ri(2,8);return{target:10,start:s,outline:false}}},
+  {id:'more10',name:'Make 10',icon:'🤝',gen:()=>({target:10,start:ri(2,8),unit:1}),demo:()=>({target:10,start:8,unit:1})},
+  {id:'more20',name:'Make 20',icon:'🎯',gen:()=>({target:20,start:ri(11,17),unit:1}),demo:()=>({target:20,start:18,unit:1})},
+  {id:'by2',name:'Count by 2s',icon:'🍒',gen:()=>({target:ri(3,10)*2,start:0,unit:2}),demo:()=>({target:4,start:0,unit:2})},
+  {id:'by5',name:'Count by 5s',icon:'🖐️',gen:()=>({target:ri(3,8)*5,start:0,unit:5}),demo:()=>({target:10,start:0,unit:5})},
+  {id:'by10',name:'Count by 10s',icon:'🔟',gen:()=>({target:ri(3,9)*10,start:0,unit:10}),demo:()=>({target:20,start:0,unit:10})},
 ];
 const ROUNDS=6;
-export default {id:'dragon',title:'Feed the Dragon',sub:'Count snacks for Ember!',art:'🐲',color:'#22a045',skills:SK,create};
+export default {id:'dragon',title:'Feed the Dragon',sub:'Skip count for Ember!',art:'🐲',color:'#22a045',skills:SK,create};
 
 function create(K){
   const S={task:null,snacks:[],count:0,size:.8,sizeTo:.8,mouth:'open',chew:0,blink:0,flap:0,trick:null,trickT:0,fire:0,fireRainbow:false,
@@ -47,10 +49,10 @@ function create(K){
     if(S.cake&&Math.random()<dt*5)K.parts.add({kind:'emoji',ch:pick(['🎈','🎉','💖','⭐']),x:rand(0,K.w),y:K.h+30,vy:-rand(120,220),life:4,size:rand(28,46)});
   }
   function eat(){
-    S.count++;S.chew=.35;K.sfx.peep();
+    S.count+=S.task.unit;S.chew=.35;K.sfx.peep();
     const [mx,my]=mouth();K.parts.add({kind:'emoji',ch:'✨',x:mx,y:my,vy:-60,life:.6,size:26});
     S.pops=(S.pops||[]).concat({n:S.count,t:0});
-    K.sayNow('dragon',WORDS[S.count]||String(S.count));
+    K.sayNow('dragon',S.count+'!');
   }
   function draw(g,w,h){
     // dusk picnic sky
@@ -65,7 +67,9 @@ function create(K){
     for(let i=0;i<8;i++)for(let j=0;j<4;j++){g.fillStyle=(i+j)%2?'#ff6b81':'#fff';g.fillRect(-bw/2+i*bw/8,-bh*.15+j*bh/4,bw/8+1,bh/4+1)}
     g.restore();
     // snacks on the blanket (and in flight)
-    for(const s of S.snacks)if(s.st!=='eaten'){const bob=s.st==='plate'?Math.sin(K.t*3+s.wob)*3:0;emo(g,s.ch,s.x,s.y+bob,Math.min(w*.07,72),s.st==='plate'?Math.sin(K.t*2+s.wob)*.08:K.t*8)}
+    const u=S.task?S.task.unit:1,ss=Math.min(w*.07,72);
+    for(const s of S.snacks)if(s.st!=='eaten'){const bob=s.st==='plate'?Math.sin(K.t*3+s.wob)*3:0;emo(g,s.ch,s.x,s.y+bob,ss,s.st==='plate'?Math.sin(K.t*2+s.wob)*.08:K.t*8);
+      if(u>1&&s.st==='plate'){g.fillStyle='#fff';g.beginPath();g.arc(s.x+ss*.36,s.y+bob-ss*.36,ss*.22,0,7);g.fill();colorText(g,String(u),s.x+ss*.36,s.y+bob-ss*.34,ss*.3)}}
     drawDragon(g,DX(),DY(),DS());
     // the wish: a thought bubble with the number (and empty spots to fill for small numbers)
     if(S.task&&!S.done)drawWish(g);
@@ -83,15 +87,15 @@ function create(K){
     for(let i=0;i<ROUNDS;i++)emo(g,i<S.round?'🐲':'🥚',w/2+(i-(ROUNDS-1)/2)*44,30,30);
   }
   function drawWish(g){
-    const T=S.task,s=DS(),x=DX()-230*s-60,y=DY()-260*s-40,n=T.target;
-    const W=Math.max(150,Math.min(n,5)*46+40),H=(T.outline?Math.ceil(n/5)*46:0)+110;
+    const T=S.task,s=DS(),x=DX()-230*s-60,y=DY()-260*s-40,n=T.target/T.unit,outline=n<=10;
+    const W=Math.max(150,Math.min(n,5)*46+40),H=(outline?Math.ceil(n/5)*46:0)+110;
     g.fillStyle='#fff';for(const [dx,dy,r] of [[-.35,0,.42],[.35,0,.42],[0,-.2,.5],[0,.25,.45]]){g.beginPath();g.ellipse(x+dx*W,y+dy*H,r*W,r*H*.9,0,0,7);g.fill()}
     g.beginPath();g.arc(x+W*.45,y+H*.62,12,0,7);g.fill();g.beginPath();g.arc(x+W*.6,y+H*.8,7,0,7);g.fill();
-    colorText(g,String(n),x,y-(T.outline?H*.18:0),66,{stroke:0});
-    if(T.outline){
+    colorText(g,String(T.target),x,y-(outline?H*.18:0),66,{stroke:0});
+    if(outline){
       const cols=Math.min(n,5);
       for(let i=0;i<n;i++){const cx=x+(i%cols-(cols-1)/2)*44,cy=y+H*.15+Math.floor(i/5)*44;
-        if(i<S.count)emo(g,S.snackCh,cx,cy,34);else{g.strokeStyle='#c9cfdb';g.lineWidth=3;g.setLineDash([5,5]);g.beginPath();g.arc(cx,cy,16,0,7);g.stroke();g.setLineDash([])}}
+        if(i<S.count/T.unit)emo(g,S.snackCh,cx,cy,34);else{g.strokeStyle='#c9cfdb';g.lineWidth=3;g.setLineDash([5,5]);g.beginPath();g.arc(cx,cy,16,0,7);g.stroke();g.setLineDash([])}}
     }
   }
   function drawDragon(g,x,y,s){
@@ -147,12 +151,12 @@ function create(K){
   let resolveDone=null;
   function thumbs(){if(S.lock||S.done||!S.task||S.snacks.some(s=>s.st==='fly'))return;K.sfx.select();resolveDone&&resolveDone()}
   async function round(task,{demo=false,guided=false}={}){
-    const sn=pick(SNACKS);S.snackCh=sn.e;
+    const sn=task.unit>1?PACKS[task.unit]:pick(SNACKS);S.snackCh=sn.e;
     S.task=task;S.count=task.start;S.done=false;S.mouth='open';
-    layoutSnacks(task.target-task.start+ri(2,3),sn.e);
-    const more=task.target-task.start;
+    const more=(task.target-task.start)/task.unit;
+    layoutSnacks(more+ri(2,3),sn.e);
     if(task.start)await K.say('narrator',`Ember already ate ${task.start}. She wants ${task.target} ${sn.many} in all!`);
-    else await K.say('dragon',`I want ${task.target} ${sn.many}!`);
+    else await K.say('dragon',`I want ${task.target} ${sn.many}!${sn.say&&(demo||guided||S.round===0)?' '+sn.say:''}`);
     if(demo){
       await K.say('narrator','Watch me count!');
       for(let i=0;i<more;i++){const s=nextSnack();K.hand.on=true;for(let k=0;k<14;k++){K.hand.x=lerp(K.hand.x,s.x,.3);K.hand.y=lerp(K.hand.y,s.y,.3);await K.wait(.03)}K.hand.tap=1;feed(s);await K.wait(1)}
@@ -174,7 +178,7 @@ function create(K){
           if(!guided&&!demo)S.mistakes++;
           S.hic=K.t+1;K.sfx.boing();K.shake=.3;
           const s=[...S.snacks].reverse().find(q=>q.st==='eaten');
-          if(s){s.st='back';s.t=0;const [mx,my]=mouth();s.fx=mx;s.fy=my;S.count--}
+          if(s){s.st='back';s.t=0;const [mx,my]=mouth();s.fx=mx;s.fy=my;S.count-=task.unit}
           await K.say('dragon',`Hic! Too many! I wanted ${task.target}.`);
         }
         S.lock=false;S.lastTap=K.t;
@@ -199,7 +203,7 @@ function create(K){
     await K.say('narrator','This is Ember, the baby dragon. She is SO hungry!');
     await K.say('dragon','Hungry hungry hungry!');
     await K.say('narrator','Give Ember exactly what she asks for. Not too many, not too few!');
-    await round({target:2,start:0,outline:true},{demo:true});
+    await round(skill.demo(),{demo:true});
     await K.say('narrator',"Your turn! Tap a snack to feed her. Or press Space. Then press thumbs up!");
     await round(skill.gen(),{guided:true});
     await K.say('narrator','Wonderful! Ember wants more!');

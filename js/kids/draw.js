@@ -100,41 +100,76 @@ function drawGroup(g,n,ch,x,y,s,t,cross=0,wiggle=0){
       g.moveTo(cx-s*.32,cy-s*.32);g.lineTo(cx+s*.32,cy+s*.32);g.moveTo(cx+s*.32,cy-s*.32);g.lineTo(cx-s*.32,cy+s*.32);g.stroke()}
   }
 }
+// a "ten bar": ten blocks stacked, the way school shows place value
+function tenBar(g,x,y,bw,bh){
+  g.fillStyle='#3a86ff';rr(g,x,y,bw,bh,bw*.25);g.fill();
+  g.strokeStyle='rgba(255,255,255,.75)';g.lineWidth=1.5;
+  for(let i=1;i<10;i++){g.beginPath();g.moveTo(x+2,y+bh*i/10);g.lineTo(x+bw-2,y+bh*i/10);g.stroke()}
+}
+// every picture part is {w,h,draw(x,y)}: objects, tens+ones, equal groups, a ten frame, or a sign
+function partFor(q,p,s,st){
+  const ch=p.o.e;
+  if(q[0]==='g'){const [w,h]=groupSize(q[1],s);return{w,h,draw:(x,y)=>drawGroup(g0,q[1],ch,x,y,s,st.t,q[2]||0,1)}}
+  if(q[0]==='sym')return{w:s*.9,h:s,draw:(x,y)=>txt(g0,q[1],x+s*.45,y+s*.5,s,'#2b2d42')};
+  if(q[0]==='base'){ // tens bars + ones
+    const n=q[1],T=Math.floor(n/10),O=n%10,bw=s*.42,bh=s*2.6,os=s*.62,oc=Math.min(O,5),orows=Math.ceil(O/5);
+    const w=T*bw*1.3+(O?oc*os*1.05+s*.2:0),h=Math.max(T?bh:0,orows*os*1.05);
+    return{w,h,draw:(x,y)=>{
+      for(let i=0;i<T;i++)tenBar(g0,x+i*bw*1.3,y+(h-bh)/2,bw,bh);
+      const ox=x+T*bw*1.3+(T?s*.2:0);
+      for(let i=0;i<O;i++)emo(g0,ch,ox+(i%5+.5)*os*1.05,y+(h-orows*os*1.05)/2+(Math.floor(i/5)+.5)*os*1.05+Math.sin(st.t*4+i)*2,os);
+    }};
+  }
+  if(q[0]==='mul'){ // k bubbles of n
+    const k=q[1],n=q[2],os=s*.55,inner=n===10?[s*.5,s*2.2]:[Math.min(n,5)*os*1.05,Math.ceil(n/5)*os*1.05];
+    const bw=inner[0]+s*.4,bh=inner[1]+s*.4,per=Math.min(k,3),rows=Math.ceil(k/3);
+    const w=per*bw+(per-1)*s*.25,h=rows*bh+(rows-1)*s*.25;
+    return{w,h,draw:(x,y)=>{
+      for(let i=0;i<k;i++){
+        const bx=x+(i%3)*(bw+s*.25),by=y+Math.floor(i/3)*(bh+s*.25);
+        g0.fillStyle='#fff6d6';g0.strokeStyle='#ffc94d';g0.lineWidth=3;rr(g0,bx,by,bw,bh,s*.3);g0.fill();g0.stroke();
+        if(n===10)tenBar(g0,bx+(bw-s*.5)/2,by+s*.2,s*.5,s*2.2);
+        else for(let j=0;j<n;j++)emo(g0,ch,bx+s*.2+(j%5+.5)*os*1.05,by+s*.2+(Math.floor(j/5)+.5)*os*1.05+Math.sin(st.t*4+i+j)*2,os);
+      }
+    }};
+  }
+  // ten frame: a filled, the rest empty
+  const c=s*1.15;
+  return{w:c*5,h:c*2,draw:(x,y)=>{
+    for(let j=0;j<10;j++){const fx=x+(j%5)*c,fy=y+Math.floor(j/5)*c;
+      g0.fillStyle=j<p.a?'#fff6d6':'#f1f3f8';g0.strokeStyle='#c9cfdb';g0.lineWidth=2;rr(g0,fx+2,fy+2,c-4,c-4,8);g0.fill();g0.stroke();
+      if(j<p.a)emo(g0,ch,fx+c/2,fy+c/2,s*.85);
+      else if(st.solved)emo(g0,ch,fx+c/2,fy+c/2,s*.85,0,.9);
+      else txt(g0,'?',fx+c/2,fy+c/2,s*.6,'#c9cfdb')}
+  }};
+}
+let g0=null;
 // card centred at (cx, top). st: {solved, pop (0..1 entrance), t}
 export function drawProblem(g,p,cx,top,W,st){
-  const s=clamp(W*.036,24,44),pad=s*.5;
-  let parts=[];
+  g0=g;
+  const big=Math.max(p.a,p.b,p.kind==='sub'?0:p.ans)>20;
+  const s=clamp(W*.036,24,44)*(big||p.kind==='mul'?.85:1),pad=s*.5;
+  let parts;
   if(p.kind==='count')parts=[['g',p.a]];
-  else if(p.kind==='sub')parts=[['g',p.a,p.b]];
   else if(p.kind==='make10')parts=[['frame']];
-  else parts=[['g',p.a],['sym','+'],['g',p.b]];
-  const sizes=parts.map(q=>q[0]==='g'?groupSize(q[1],s):q[0]==='frame'?[s*5*1.15,s*2*1.15]:[s*.9,s]);
-  const vw=sizes.reduce((a,b)=>a+b[0],0)+pad*(parts.length-1),vh=Math.max(...sizes.map(z=>z[1]));
-  const eqS=s*1.1,w=Math.max(vw,s*5)+pad*2,h=vh+eqS*1.5+pad*2;
+  else if(p.kind==='mul')parts=[['mul',p.a,p.b]];
+  else if(p.kind==='sub')parts=p.a>20?[['base',p.a]]:[['g',p.a,p.b]];
+  else parts=big?[['base',p.a],['sym','+'],['base',p.b]]:[['g',p.a],['sym','+'],['g',p.b]];
+  const items=parts.map(q=>partFor(q,p,s,st));
+  const vw=items.reduce((a,b)=>a+b.w,0)+pad*(items.length-1),vh=Math.max(...items.map(z=>z.h));
+  const eqS=s*1.15,w=Math.max(vw,s*5)+pad*2,h=vh+eqS*1.5+pad*2;
   const k=st.pop<1?ease(clamp(st.pop,0,1)):1;
   g.save();g.translate(cx,top+h/2);g.scale(.6+.4*k,.6+.4*k);g.globalAlpha=k;g.translate(-cx,-(top+h/2));
   g.fillStyle='rgba(0,0,0,.12)';rr(g,cx-w/2,top+6,w,h,22);g.fill();
   g.fillStyle='#fff';rr(g,cx-w/2,top,w,h,22);g.fill();
   if(st.solved){g.strokeStyle='#22c55e';g.lineWidth=6;rr(g,cx-w/2,top,w,h,22);g.stroke()}
   let x=cx-vw/2;const y=top+pad;
-  parts.forEach((q,i)=>{
-    const [pw,ph]=sizes[i],oy=y+(vh-ph)/2;
-    if(q[0]==='g')drawGroup(g,q[1],p.o.e,x,oy,s,st.t,q[2]||0,1);
-    else if(q[0]==='sym')txt(g,q[1],x+pw/2,y+vh/2,s,'#2b2d42');
-    else{ // ten frame: a filled, the rest empty
-      const c=s*1.15;
-      for(let j=0;j<10;j++){const fx=x+(j%5)*c,fy=oy+Math.floor(j/5)*c;
-        g.fillStyle=j<p.a?'#fff6d6':'#f1f3f8';g.strokeStyle='#c9cfdb';g.lineWidth=2;rr(g,fx+2,fy+2,c-4,c-4,8);g.fill();g.stroke();
-        if(j<p.a)emo(g,p.o.e,fx+c/2,fy+c/2,s*.85);
-        else if(st.solved)emo(g,p.o.e,fx+c/2,fy+c/2,s*.85,0,.9);
-        else txt(g,'?',fx+c/2,fy+c/2,s*.6,'#c9cfdb')}
-    }
-    x+=pw+pad;
-  });
+  items.forEach(it=>{it.draw(x,y+(vh-it.h)/2);x+=it.w+pad});
   colorText(g,eqText(p,st.solved),cx,top+pad+vh+eqS*.85,eqS);
   g.restore();
   return h;
 }
+
 // the pointing hand used by tutorials
 export function drawHand(g,x,y,t,tap){
   const b=Math.sin(t*6)*6,sc=tap?1-.25*Math.sin(Math.min(1,tap)*Math.PI):1;

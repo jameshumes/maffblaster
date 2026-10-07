@@ -211,10 +211,10 @@ function create(K){
     }else{S.spin=1.2;K.sfx.oops();K.shake=.6;K.parts.puff(x,y-10,10,'#8b5a2b',30)}
   }
   async function gateRound({prob,demo=false,guided=false}){
-    const vals=choicesFor(prob.ans),ans=vals.indexOf(prob.ans);
+    const vals=choicesFor(prob.ans,prob.step),ans=vals.indexOf(prob.ans);
     S.prob=prob;S.probPop=0;S.solved=false;
     const gt={dz:30,vals,ans,hold:true,guided,done:false};S.gates.push(gt);
-    S.cruise=9/K.speed;
+    S.cruise=9/(K.speed*(prob.think||1));
     await K.say(demo?'narrator':pick(['narrator','narrator','kitty2']),prob.say);
     if(demo){
       await K.say('narrator','Watch me!');
