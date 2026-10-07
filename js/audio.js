@@ -16,6 +16,7 @@ export function audio(){
     if(AC.state==='suspended')AC.resume();
   }catch(e){}
 }
+export const audioCtx=()=>({AC,master,noiseBuf});
 export function setVolume(v){audio();if(master)master.gain.value=v}
 function tone(type,f0,f1,dur,vol,delay=0){
   if(!AC)return;const t=AC.currentTime+delay;

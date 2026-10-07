@@ -4,7 +4,7 @@ import {audio,SFX,setVolume} from './audio.js';
 import {THREE,scene,V,FX,labelsEl,gridPush,emit,burst,shockwave,firework,clearFireworks,polyGeo,glowMat,toScreen,fxStep,fxRender} from './fx.js';
 import {makeChoices} from './choices.js';
 import {createTens} from './tens.js';
-import {createKids} from './kids.js';
+import {createKidsApp} from './kids/app.js';
 import {CHAPTERS,LV,chapterById} from './curriculum/index.js';
 
 // enemy look per level kind
@@ -126,7 +126,7 @@ function killShot(s){scene.remove(s.m);s.m.material.dispose();shots.splice(shots
 function clearField(){
   [...enemies].forEach(removeEnemy);[...shots].forEach(killShot);
   labelsEl.querySelectorAll('.pop').forEach(n=>n.remove());clearFireworks();$('toasts').innerHTML='';
-  tens.stop();kids.stop();document.body.classList.remove('kidsmode');hideChoices();target=null;
+  tens.stop();hideChoices();target=null;
   buf='';renderInput();
 }
 
@@ -148,7 +148,7 @@ function showChoices(L,cb){
   });
   show('choices');show('inputWrap',false);
 }
-function hideChoices(){choiceCb=null;show('choices',false);if(state==='play'&&!kids.running)show('inputWrap')}
+function hideChoices(){choiceCb=null;show('choices',false);if(state==='play')show('inputWrap')}
 function pickChoice(i){
   if(state!=='play'||!choiceCb||i>=choiceVals.length)return;
   const b=$('choices').children[i];if(b.classList.contains('bad'))return;
@@ -191,13 +191,8 @@ const tens=createTens({
   hideChoices,
 });
 
-// ---------- kids mode ----------
-const kids=createKids({
-  G:()=>G,
-  problem:()=>freshProblem(),
-  showChoices,hideChoices,
-  finish(stars,info){if(state!=='play')return;G.kidStars=stars;G.kidInfo=info;state='ending';G.ending=0},
-});
+// ---------- kids mode: a separate hub of talking games ----------
+const kids=createKidsApp({exit(){save.settings.mode='normal';persist();showChapters()}});
 
 // ---------- spawning ----------
 const srcFor=()=>G.lv.mix?LV[pick(G.lv.mix)]:G.lv;
@@ -209,16 +204,6 @@ function nextProblem(){
     const src=srcFor(),[a,b]=choosePair(src,G.recent);
     const prob=src.make(a,b,src);
     if(keys.has(prob.key)||act.has(prob.layers[0].a))continue;
-    return{prob,src};
-  }
-  return null;
-}
-function freshProblem(){
-  for(let tries=0;tries<40;tries++){
-    const src=srcFor(),[a,b]=choosePair(src,G.recent),prob=src.make(a,b,src);
-    // small pools (Make 10 has 5 facts) would run dry, so repeats are allowed as a last resort
-    if(G.recent.includes(prob.key)&&tries<39)continue;
-    G.recent.push(prob.key);if(G.recent.length>5)G.recent.shift();
     return{prob,src};
   }
   return null;
@@ -382,8 +367,7 @@ function placeLabels(){
 function updatePlay(dt){
   G.t+=dt;
   if(state==='play'){buffsStep(dt);renderBuffs()}
-  if(kids.running)kids.update(dt);
-  else if(tens.active)tens.update(dt);
+  if(tens.active)tens.update(dt);
   else{
     if(state==='play'){
       if(!enemies.length)G.spawnT=Math.min(G.spawnT,.5);
@@ -401,6 +385,7 @@ function hidePlayUI(){show('hud',false);show('inputWrap',false);show('keypad',fa
 function placeSettings(overlay){$(overlay).querySelector('.settingsSlot').appendChild($('settings'));syncSettings()}
 
 function showChapters(){
+  if(mode()==='kids'){state='kids';clearField();G=null;persist();hideOverlays();hidePlayUI();kids.open();return}
   state='chapters';clearField();G=null;persist();hideOverlays();hidePlayUI();
   buildChapters();placeSettings('chapters');show('chapters');
 }
@@ -416,13 +401,6 @@ function startLevel(lv){
   $('intro').style.setProperty('--c',w.color);
   $('iWorld').textContent=`${lv.ch.name} · WORLD ${lv.w+1} · ${w.name}`;
   $('iName').textContent=lv.name;$('iTip').innerHTML=lv.tip;
-  if(mode()==='kids'){
-    document.body.classList.add('kidsmode');
-    $('iGoals').innerHTML='';
-    if(lv.game!=='tens')$('iTip').innerHTML='Help the <b>Super Kitty Squad</b>! Pick the right answer to pop each balloon and bring the animals safely home.';
-    $('iHint').textContent=lv.game==='tens'?'Type two numbers that make 10, then pick the total with ← ↑ → or tap it.':'Pick an answer with ← ↑ → (or F G J), or just tap it! SPACE moves the story along.';
-    show('intro');return;
-  }
   $('iGoals').innerHTML=`ENDLESS · faster every wave · ${G.goals.map((g,i)=>`<span style="color:${STAR_COLOR[i+1]}">${'★'.repeat(i+1)}</span> ${g.toLocaleString()}`).join(' &nbsp; ')}`;
   const m=mode(),ch=choiceMode();
   $('iHint').textContent=lv.game==='tens'
@@ -435,8 +413,6 @@ function beginPlay(){
   state='play';hideOverlays();show('hud');
   const typing=G.lv.game==='tens'||!choiceMode();
   show('inputWrap',typing);show('keypad',TOUCH&&typing);
-  if(mode()==='kids'&&G.lv.game!=='tens'){show('hud',false);show('inputWrap',false);show('keypad',false);kids.start(G.lv);return}
-  if(mode()==='kids')kids.backdrop();
   if(G.lv.game==='tens')tens.start(G.lv,worldOf(G.lv).color);
   updateHUD();
 }
@@ -446,20 +422,8 @@ function endLevel(){
   for(const e of [...enemies]){burst(e.x,e.y,e.st.color,90,40);removeEnemy(e)}
   if(starsFor(G.score,G.goals))SFX.win();else SFX.lose();
 }
-function showKidsResults(){
-  const lv=G.lv,stars=G.kidStars,key=levelKey(lv.id),r=save.levels[key]||{stars:0,best:0},nxt=lv.ch.levels[lv.i+1];
-  r.stars=Math.max(r.stars,stars);save.levels[key]=r;persist();
-  $('rKick').textContent=lv.name.toUpperCase();
-  $('rTitle').textContent=['','GOOD JOB!','GREAT JOB!','AMAZING!'][stars];
-  $('rStars').innerHTML=[0,1,2].map(k=>k<stars?`<i style="animation-delay:${.2+k*.25}s">★</i>`:'<s>★</s>').join('');
-  $('rStats').innerHTML=`<div><b>${G.kidInfo.rescued}</b><span>friends rescued</span></div><div><b>${G.kidInfo.oops}</b><span>oopsies</span></div><div><b>${'★'.repeat(stars)}</b><span>stars</span></div><div><b>${lv.ch.name==='ADDITION'?'➕':'✖️'}</b><span>${lv.name}</span></div>`;
-  $('rTip').innerHTML=stars===3?'A perfect rescue! You are a real Super Kitty!':'Fewer oopsies earns more stars. You can do it!';
-  $('bNext').innerHTML=nxt?'NEXT <kbd>ENTER</kbd>':'MENU <kbd>ENTER</kbd>';
-  G.stars=stars;show('results');
-}
 function showResults(){
   state='results';hidePlayUI();tens.stop();
-  if(G.kidInfo){showKidsResults();return}
   const lv=G.lv,w=worldOf(lv),att=G.hits+G.misses+G.crashes;
   const acc=att?G.hits/att:0,avg=G.times.length?G.times.reduce((a,b)=>a+b,0)/G.times.length:0;
   const stars=starsFor(G.score,G.goals);
@@ -551,7 +515,7 @@ function syncSettings(){
 }
 const refreshMenus=()=>{syncSettings();if(state==='chapters')buildChapters();else if(state==='menu')buildMenu()};
 document.querySelectorAll('#diffSeg button').forEach(b=>b.onclick=()=>{save.settings.diff=+b.dataset.v;persist();refreshMenus();b.blur()});
-document.querySelectorAll('#modeSeg button').forEach(b=>b.onclick=()=>{save.settings.mode=b.dataset.v;persist();refreshMenus();b.blur()});
+document.querySelectorAll('#modeSeg button').forEach(b=>b.onclick=()=>{save.settings.mode=b.dataset.v;persist();b.blur();if(b.dataset.v==='kids')showChapters();else refreshMenus()});
 $('auto').onchange=e=>{save.settings.auto=e.target.checked;persist()};
 $('vol').oninput=e=>{save.settings.vol=+e.target.value;setVolume(save.settings.vol);persist()};
 $('bChapters').onclick=showChapters;
@@ -621,7 +585,6 @@ $('mcv').addEventListener('mouseleave',()=>$('mtip').classList.add('hidden'));
 // a key during play; returns true if it was used
 function playKey(k){
   if(choiceCb){const i=choiceIndex(k);if(i>=0){pickChoice(i);return true}}
-  if(kids.running)return kids.key(k);
   if(tens.active)return tens.key(k);
   if(choiceMode())return false;
   if(k.length===1&&k>='0'&&k<='9'){typeDigit(k);return true}
@@ -635,6 +598,7 @@ addEventListener('keydown',ev=>{
   const k=ev.key;
   if(!$('mastery').classList.contains('hidden')){if(k==='Escape'||k==='m'||k==='M'){ev.preventDefault();closeMastery()}return}
   switch(state){
+    case'kids':if(kids.key(ev))ev.preventDefault();break;
     case'chapters':
       if(k>='1'&&k<=String(CHAPTERS.length))openChapter(CHAPTERS[+k-1]);
       else if(k==='Enter'){ev.preventDefault();openChapter(chapter)}
@@ -680,8 +644,9 @@ function frame(now){
     }
     fxStep(dt);
   }
+  if(state==='kids'){kids.frame(dt);return}
   const shooter=!!G&&G.lv.game!=='tens'&&(state==='play'||state==='ending'||state==='paused'||state==='intro');
-  if(!kids.active)fxRender({dt,time:gtime,paused:state==='paused',ship:shooter,shield:shooter,lifeFrac:G?G.lives/G.maxLives:1});
+  fxRender({dt,time:gtime,paused:state==='paused',ship:shooter,shield:shooter,lifeFrac:G?G.lives/G.maxLives:1});
   placeLabels();
 }
 showChapters();
@@ -689,4 +654,4 @@ requestAnimationFrame(frame);
 // deep link: ?level=b1 opens that level's briefing (#go starts it)
 {const lv=LV[new URLSearchParams(location.search).get('level')];if(lv){startLevel(lv);if(location.hash==='#go')beginPlay()}}
 // test hook
-window.__mb={get G(){return G},get state(){return state},get enemies(){return enemies},LV,startLevel,beginPlay,tens};
+window.__mb={get G(){return G},get state(){return state},get enemies(){return enemies},LV,startLevel,beginPlay,tens,kids};
