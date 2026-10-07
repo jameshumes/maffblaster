@@ -172,7 +172,7 @@ h3{font-family:Orbitron;font-size:13px;letter-spacing:.2em;text-align:center;col
     <div class="big" id="iName"></div>
     <div class="tip" id="iTip"></div>
     <div class="row"><button class="btn" id="bGo">LAUNCH <kbd>ENTER</kbd></button><button class="btn alt" id="bBack">BACK <kbd>ESC</kbd></button></div>
-    <div class="hint">Type the answer to fire. Auto-fires on an exact match; ENTER forces a shot. BACKSPACE edits. ESC pauses.</div>
+    <div class="hint">Type the answer to fire. Auto-fires on an exact match; ENTER forces a shot. BACKSPACE edits, SPACE clears. ESC pauses.</div>
   </div>
 </div>
 
@@ -970,7 +970,7 @@ addEventListener('keydown',ev=>{
     case'play':
       if(k.length===1&&k>='0'&&k<='9'){ev.preventDefault();typeDigit(k)}
       else if(k==='Backspace'){ev.preventDefault();buf=buf.slice(0,-1);renderInput()}
-      else if(k==='Delete'){buf='';renderInput()}
+      else if(k===' '||k==='Delete'){ev.preventDefault();buf='';renderInput()}
       else if(k==='Enter'){ev.preventDefault();submit()}
       else if(k==='Escape'||k==='p'||k==='P')pause();
       break;
