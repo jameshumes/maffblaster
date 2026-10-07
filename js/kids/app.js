@@ -7,7 +7,8 @@ import {speak,cancel,CAST,setMuted,isMuted,voiceLevel,preload} from './voice.js'
 import * as voice from './voice.js';
 import {playSong,stopSong,duck,fanfare} from './music.js';
 import {Parts,view,drawHand} from './draw.js';
-import {SKILLS,makeProblem,demoProblem} from './problems.js';
+import {SKILLS,makeProblem,demoProblem,choicesFor,answerSay,eqText,colorOf} from './problems.js';
+import {STEPS,stepOf,stepById,stepInfo,recordAnswer,recordCheck,badgeCount,nextStep,lastPlayed,READY_N,READY_OK,CHECK_N,CHECK_PASS} from './syllabus.js';
 import kart from './kart3d.js';
 import rocket from './rocket3d.js';
 import dragon from './dragon3d.js';
@@ -21,9 +22,20 @@ export function hubLines(){
   const o=[['narrator','Hi friend! Pick a game!']];
   for(const gm of GAMES){o.push(['narrator',gm.title],['narrator',`${gm.title}! What should we practice?`]);for(const sk of (gm.skills||SKILLS))o.push(['narrator',sk.name])}
   for(const s of [1,2,3])o.push(['narrator',starLine(s)]);
+  o.push(...Object.values(PL).map(t=>['narrator',t]));
+  for(const st of STEPS)o.push(['narrator',st.name],['narrator',st.can],['narrator',`${st.name} badge check! Show what you know!`],['narrator',`You earned the ${st.name} badge!`]);
   return o;
 }
 export {GAMES};
+// the learning path's lines
+const PL={
+  path:'This is your learning path! Tap a stop to see what you can do.',
+  pathBtn:'My Path',
+  ready:'You are ready for the badge check!',
+  close:'So close! Practice a little more, then try again.',
+  next:'Next one!',
+  allDone:'You got every badge! You are a math superstar!',
+};
 const starsKey=(game,skill)=>`kid:${game}:${skill}`;
 const starsOf=(game,skill)=>save.levels[starsKey(game,skill)]?.stars||0;
 
@@ -51,6 +63,9 @@ export function createKidsApp({exit}){
     // how wide a character's mouth should be open right now
     talk(who){if(voice.speaking!==who)return 0;const l=voiceLevel();return l>0?Math.min(1,l*1.4):.5+.5*Math.sin(K.t*22)},
     finish(stars){finish(stars)},
+    // a real answer (not a demo or guided try) counts toward the learning path
+    answer(p,ok,secs){recordAnswer(p.sk||stepOf(K.gameId,K.skill),eqText(p),ok,secs)},
+    record(fact,ok,secs){recordAnswer(stepOf(K.gameId,K.skill),fact,ok,secs)},
   };
   let waits=[],conds=[];
 
@@ -59,7 +74,7 @@ export function createKidsApp({exit}){
     audio();root.classList.remove('hidden');root.innerHTML='';
     stopGame();hub();
   }
-  function close(){stopGame();stopSong();cancel();dropValley();root.classList.add('hidden');root.innerHTML='';screen='off'}
+  function close(){chk++;stopGame();stopSong();cancel();dropValley();root.classList.add('hidden');root.innerHTML='';screen='off'}
 
   // the living 3D valley stays up behind the hub and the skill picker
   let valley=null;
@@ -74,12 +89,13 @@ export function createKidsApp({exit}){
     const d=document.createElement('div');d.innerHTML=html;root.append(...d.childNodes);
   }
   function hub(){
-    screen='hub';stopSong();playSong('hub');ensureValley();valley.focus(-1);
+    screen='hub';chk++;stopSong();playSong('hub');ensureValley();valley.focus(-1);
     const total=GAMES.reduce((a,gm)=>a+skillsOf(gm).reduce((s,sk)=>s+starsOf(gm.id,sk.id),0),0);
     hubShell(`
       <div class="kh k3d">
         <div class="kh-top">
           <div class="kh-logo">${[...'MAFFBLAST'].map((c,i)=>`<i style="--i:${i}">${c}</i>`).join('')}<b>KIDS</b></div>
+          <button class="kh-pathbtn" id="khPath" title="My learning path">🗺️ My Path <b>🏅 ${badgeCount()}/${STEPS.length}</b></button>
           <div class="kh-stars">⭐ ${total}</div>
           <button class="kh-btn" id="khMute" title="Sound">${isMuted()?'🔇':'🔊'}</button>
           <button class="kh-btn small" id="khGrown" title="Back to the grown-up game">Grown-ups</button>
@@ -99,6 +115,8 @@ export function createKidsApp({exit}){
     });
     $('khMute').onclick=()=>{save.settings.kidsMute=!isMuted();setMuted(save.settings.kidsMute);persist();$('khMute').textContent=isMuted()?'🔇':'🔊'};
     $('khGrown').onclick=()=>{close();exit()};
+    $('khPath').onpointerenter=()=>speak('narrator',PL.pathBtn,{interrupt:true});
+    $('khPath').onclick=()=>{audio();pathScreen()};
     speak('narrator','Hi friend! Pick a game!',{interrupt:true});
   }
   const skillsOf=gm=>gm.skills||SKILLS;
@@ -122,9 +140,152 @@ export function createKidsApp({exit}){
     speak('narrator',`${gm.title}! What should we practice?`,{interrupt:true});
   }
 
+  // ---------- learning path ----------
+  const practiceFor=st=>GAMES.flatMap(gm=>skillsOf(gm).filter(sk=>stepOf(gm.id,sk.id)===st.id).map(sk=>({gm,sk})));
+  const fmtDate=t=>new Date(t).toLocaleDateString(undefined,{month:'short',day:'numeric'});
+  function pathScreen(){
+    cancel();screen='path';chk++;ensureValley();valley.focus(-1);
+    const nx=nextStep();
+    hubShell(`
+      <div class="kh k3d kp">
+        <div class="kh-top"><button class="kh-btn" id="khBack">⬅</button><div class="kh-title" style="--c:#ff9f1c">My Path</div>
+          <div class="kh-stars">🏅 ${badgeCount()}/${STEPS.length}</div><button class="kh-btn small" id="kpGrown">📋 Grown-ups</button></div>
+        <div class="kp-trail">${STEPS.map((st,i)=>{const s=stepInfo(st),tag=s.badge?'🏅 Got it!':s.ready?'✨ Ready for the badge!':st===nx?'👉 Next up':s.total?`${s.right} of ${READY_OK} ✓`:'';return`
+          <button class="kp-stop ${s.state}${st===nx?' next':''}" data-i="${i}" style="--f:${s.fill};--d:${.15+i*.05}s">
+            <div class="kp-medal ${s.state}"><span>${st.icon}</span>${s.badge?'<i>🏅</i>':''}</div>
+            <div class="kp-txt"><div class="kp-name"><small>${i+1}</small> ${st.name}</div><div class="kp-can">${st.can}</div>${tag?`<div class="kp-tag">${tag}</div>`:''}</div>
+          </button>`}).join('')}</div>
+        <div class="kover kp-sheet hidden"></div>
+      </div>`);
+    $('khBack').onclick=hub;
+    $('kpGrown').onclick=reportScreen;
+    root.querySelectorAll('.kp-stop').forEach(b=>{
+      const st=STEPS[+b.dataset.i];
+      b.onpointerenter=()=>speak('narrator',st.name,{interrupt:true});
+      b.onclick=()=>stepSheet(st);
+    });
+    speak('narrator',badgeCount()===STEPS.length?PL.allDone:PL.path,{interrupt:true});
+  }
+  function stepSheet(st,showGames=false){
+    const s=stepInfo(st),sh=root.querySelector('.kp-sheet'),games=practiceFor(st);
+    sh.classList.remove('hidden');
+    const meter=s.badge?`🏅 Badge earned ${fmtDate(s.badge.d)}`:s.ready?'✨ Ready for the badge check!':`${s.right} of ${READY_OK} right answers lately. Practice to fill the ring!`;
+    sh.innerHTML=`<div class="kres kp-card">
+      <div class="kp-medal big ${s.state}" style="--f:${s.fill}"><span>${st.icon}</span>${s.badge?'<i>🏅</i>':''}</div>
+      <div class="kp-sname">${st.name}</div><div class="kp-scan">${st.can}</div><div class="kp-meter">${meter}</div>
+      <div class="kres-btns">
+        <button class="kres-b ${s.ready||s.badge?'':'big'}" id="kpPractice">▶<small>Practice</small></button>
+        <button class="kres-b ${s.ready||s.badge?'big':''}" id="kpCheck">🏅<small>Badge Check</small></button>
+        <button class="kres-b" id="kpClose">✖<small>Close</small></button>
+      </div>
+      <div class="kp-games ${showGames?'':'hidden'}">${games.map(({gm,sk},i)=>`<button class="kp-game" data-i="${i}" style="--c:${gm.color}">${gm.art} ${gm.title}${games.filter(g=>g.gm===gm).length>1?` · ${sk.icon} ${sk.name}`:''}</button>`).join('')}</div>
+    </div>`;
+    $('kpClose').onclick=()=>{cancel();sh.classList.add('hidden')};
+    $('kpCheck').onclick=()=>checkScreen(st);
+    $('kpPractice').onclick=()=>sh.querySelector('.kp-games').classList.toggle('hidden');
+    sh.querySelectorAll('.kp-game').forEach(b=>{const {gm,sk}=games[+b.dataset.i];b.onclick=()=>startGame(gm,sk)});
+    sh.onclick=e=>{if(e.target===sh)$('kpClose').click()};
+    speak('narrator',st.can,{interrupt:true}).then(()=>{if(s.ready&&!s.badge&&screen==='path'&&!sh.classList.contains('hidden'))speak('narrator',PL.ready)});
+  }
+
+  // ---------- badge check: CHECK_N questions, no demos or hints ----------
+  let chk=0,chkPick=null;
+  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  const colorNums=t=>t.replace(/\d+/g,n=>`<b style="color:${colorOf(+n)}">${n}</b>`).replace('?','<i class="kchk-blank">?</i>');
+  async function checkScreen(st){
+    cancel();screen='check';const id=++chk;ensureValley();
+    hubShell(`
+      <div class="kh k3d kchk">
+        <div class="kh-top"><button class="kh-btn" id="khBack">⬅</button><div class="kh-title" style="--c:#ff9f1c">🏅 ${st.name} Badge Check</div></div>
+        <div class="kchk-box">
+          <div class="kchk-dots">${Array.from({length:CHECK_N},()=>'<i></i>').join('')}</div>
+          <div class="kchk-q"></div>
+          <div class="kchk-ch"></div>
+        </div>
+        <div class="kover hidden"></div>
+      </div>`);
+    $('khBack').onclick=pathScreen;
+    const q=root.querySelector('.kchk-q'),ch=root.querySelector('.kchk-ch'),dots=[...root.querySelectorAll('.kchk-dots i')];
+    q.innerHTML=`<span class="kchk-intro">${st.icon}</span>`;
+    await speak('narrator',`${st.name} badge check! Show what you know!`,{interrupt:true});
+    let score=0,last=null;
+    for(let i=0;i<CHECK_N;i++){
+      if(id!==chk)return;
+      const p=makeProblem(st.id,last);last=p;
+      const vals=choicesFor(p.ans,p.step);
+      dots[i].className='now';
+      q.innerHTML=colorNums(eqText(p));q.classList.remove('kpop');void q.offsetWidth;q.classList.add('kpop');
+      ch.innerHTML=vals.map((v,j)=>`<button data-j="${j}" style="--n:${colorOf(v)}"><kbd>${j+1}</kbd>${v}</button>`).join('');
+      const t0=performance.now();
+      const pick=new Promise(r=>{chkPick=r});
+      ch.querySelectorAll('button').forEach(b=>b.onclick=()=>chkPick&&chkPick(+b.dataset.j));
+      speak('narrator',p.say,{interrupt:true});
+      const j=await pick;chkPick=null;
+      if(id!==chk)return;
+      const ok=vals[j]===p.ans,btns=[...ch.querySelectorAll('button')];
+      recordAnswer(st.id,eqText(p),ok,(performance.now()-t0)/1000);
+      btns.forEach((b,k)=>{b.disabled=true;if(vals[k]===p.ans)b.classList.add('right');else if(k===j)b.classList.add('wrong')});
+      q.innerHTML=colorNums(eqText(p,true));
+      dots[i].className=ok?'ok':'miss';
+      if(ok){score++;SFX.chime();await sleep(650)}
+      else{SFX.oops();await speak('narrator',answerSay(p),{interrupt:true});await sleep(250)}
+      if(id!==chk)return;
+      if(i<CHECK_N-1&&i%3===2)await speak('narrator',PL.next,{interrupt:true});
+    }
+    const had=!!stepInfo(st).badge,pass=recordCheck(st.id,score);
+    const over=root.querySelector('.kchk .kover');over.classList.remove('hidden');
+    over.innerHTML=`<div class="kres">
+      ${pass?`<div class="kp-medal big badge stamp" style="--f:1"><span>${st.icon}</span><i>🏅</i></div>`:''}
+      <div class="kres-word">${pass?(had?'Still got it!':'Badge earned!'):'So close!'}</div>
+      <div class="kp-meter">${score} of ${CHECK_N} right${pass?'':` · ${CHECK_PASS} gets the badge`}</div>
+      <div class="kres-btns">
+        <button class="kres-b" id="kcAgain">🔁<small>Again</small></button>
+        ${pass?'':`<button class="kres-b" id="kcPractice">▶<small>Practice</small></button>`}
+        <button class="kres-b big" id="kcPath">🗺️<small>My Path</small></button>
+      </div></div>`;
+    $('kcAgain').onclick=()=>checkScreen(st);
+    $('kcPath').onclick=pathScreen;
+    if(!pass)$('kcPractice').onclick=()=>{pathScreen();stepSheet(st,true)};
+    if(pass){fanfare();speak('narrator',`You earned the ${st.name} badge!`,{interrupt:true})}
+    else speak('narrator',PL.close,{interrupt:true});
+  }
+
+  // ---------- grown-up report ----------
+  function reportScreen(){
+    cancel();screen='report';chk++;
+    const rows=STEPS.map((st,i)=>{
+      const s=stepInfo(st);
+      const status=s.badge?`<b class="ok">🏅 Badge</b> ${fmtDate(s.badge.d)} (${s.badge.score}/${CHECK_N})`:s.ready?'<b class="rd">Ready for check</b>':s.total?'Practicing':'<span class="dim">Not started</span>';
+      const checks=s.check?`<div class="dim">checks: ${s.check.tries}, best ${s.check.best}/${CHECK_N}</div>`:'';
+      return`<tr>
+        <td><b>${i+1}. ${st.icon} ${st.name}</b><div class="dim">${st.grown}</div><div class="std">${st.std}</div></td>
+        <td>${status}${checks}</td>
+        <td>${s.acc==null?'–':`${s.right}/${s.recentN}`}</td>
+        <td>${s.time?s.time.toFixed(1)+'s':'–'}</td>
+        <td>${s.total}${s.facts?`<div class="dim">${s.facts} different</div>`:''}</td>
+        <td>${s.tricky.length?s.tricky.map(f=>`<div>${f.q} <span class="dim">${f.ok}/${f.n}</span></div>`).join(''):'–'}</td>
+      </tr>`}).join('');
+    const total=STEPS.reduce((a,st)=>a+stepInfo(st).total,0),lp=lastPlayed();
+    hubShell(`
+      <div class="kh krep">
+        <div class="kh-top"><button class="kh-btn" id="khBack">⬅</button><div class="kh-title" style="--c:#3a86ff">Progress Report</div><button class="kh-btn small" id="krPrint">🖨 Print</button></div>
+        <div class="krep-body">
+          <div class="krep-sum"><span>🏅 <b>${badgeCount()}</b> of ${STEPS.length} badges</span><span>✏️ <b>${total}</b> answers</span><span>📅 last played <b>${lp?fmtDate(lp):'never'}</b></span></div>
+          <p class="krep-how">The path follows the US Common Core order for kindergarten to grade 2 (standard codes shown). Every answer in a game counts toward its step, except the "watch me" demo and the guided first try.
+          A step is <b>ready</b> when ${READY_OK} of the last ${READY_N} answers are right. The <b>badge</b> takes ${CHECK_PASS} of ${CHECK_N} in a Badge Check, which has no demos or pointing hand.
+          Times are the median for right answers and include hearing the question read aloud, so 3 to 5 seconds is normal; under 3 means the fact is automatic.</p>
+          <div class="krep-scroll"><table class="krep-t">
+            <thead><tr><th>Step</th><th>Status</th><th>Last ${READY_N}</th><th>Time</th><th>Answers</th><th>Tricky facts</th></tr></thead>
+            <tbody>${rows}</tbody></table></div>
+        </div>
+      </div>`);
+    $('khBack').onclick=pathScreen;
+    $('krPrint').onclick=()=>print();
+  }
+
   // ---------- playing ----------
   function startGame(gm,sk){
-    cancel();stopSong();session++;waits=[];conds=[];paused=false;dropValley();
+    chk++;cancel();stopSong();session++;waits=[];conds=[];paused=false;dropValley();
     screen='game';
     root.innerHTML=`<div class="k3"></div><canvas class="kc"></canvas>
       <div class="kcap hidden"><div class="kcap-face"></div><div><b></b><p></p></div></div>
@@ -155,9 +316,12 @@ export function createKidsApp({exit}){
     const list=skillsOf(gm),nxt=list[list.indexOf(sk)+1];
     const over=root.querySelector('.kover');over.classList.remove('hidden');
     const word=WORDS[stars];
+    const step=stepById(stepOf(gm.id,sk.id)),si=step&&stepInfo(step);
+    const chip=!si?'':si.badge?`${step.icon} ${step.name}: 🏅 badge earned!`:si.ready?`${step.icon} ${step.name}: ready for the badge check!`:`${step.icon} ${step.name}: ${si.right} of ${READY_OK} right toward the badge check`;
     over.innerHTML=`<div class="kres">
       <div class="kres-stars">${[0,1,2].map(i=>`<span class="${i<stars?'on':''}" style="--d:${.3+i*.35}s">★</span>`).join('')}</div>
       <div class="kres-word">${word}</div>
+      ${chip?`<div class="kres-path">${chip}</div>`:''}
       <div class="kres-btns">
         <button class="kres-b" id="krAgain">🔁<small>Again</small></button>
         ${nxt?`<button class="kres-b big" id="krNext">▶<small>Next</small></button>`:''}
@@ -227,6 +391,13 @@ export function createKidsApp({exit}){
     const k=ev.key;
     if(screen==='results'){if(k==='Enter'||k===' '){(root.querySelector('#krNext')||root.querySelector('#krAgain')).click();return true}if(k==='Escape'){stopGame();root.innerHTML='';hub();return true}return false}
     if(screen==='skills'&&k==='Escape'){hub();return true}
+    if(screen==='path'&&k==='Escape'){const sh=root.querySelector('.kp-sheet');if(sh&&!sh.classList.contains('hidden'))sh.classList.add('hidden');else hub();return true}
+    if(screen==='report'&&k==='Escape'){pathScreen();return true}
+    if(screen==='check'){
+      if(k==='Escape'){pathScreen();return true}
+      if(chkPick&&/^[1-3]$/.test(k)){const b=root.querySelectorAll('.kchk-ch button')[+k-1];if(b){b.click();return true}}
+      return false;
+    }
     if(screen!=='game')return false;
     if(k==='Escape'||k==='p'){pause(!paused);return true}
     if(paused){if(k==='Enter'||k===' '){pause(false);return true}return false}

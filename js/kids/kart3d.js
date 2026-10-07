@@ -282,6 +282,7 @@ function create(K){
     const gt=makeGate(vals,ans,guided);gt.held=true;gt.g.position.z=-60;scene.add(gt.g);S.gates.push(gt);
     K.sfx.whoosh();
     await K.say('narrator',prob.say);
+    let t0=K.t;
     if(demo){
       await K.say(...L.watch);
       const dr=gt.drones[ans];const p=new THREE.Vector3();
@@ -289,11 +290,12 @@ function create(K){
       for(let i=0;i<25;i++){dr.d.getWorldPosition(p);const [sx,sy]=screenOf(p);K.hand.x=l2(K.hand.x,sx,.2);K.hand.y=l2(K.hand.y,sy+40,.2);await K.wait(.03)}
       K.hand.tap=1;K.sfx.select();await K.wait(.4);S.lane=ans-1;K.hand.on=false;
     }else{
-      S.lock=false;
+      S.lock=false;t0=K.t;
       if(guided)K.wait(3.5).then(()=>{if(!gt.done&&S.lane!==ans-1){const p=new THREE.Vector3();gt.drones[ans].d.getWorldPosition(p);const [sx,sy]=screenOf(p);K.hand.on=true;K.hand.x=sx;K.hand.y=sy+40;K.sfx.select()}});
     }
     gt.held=false;gt.v=24/(3.6*K.speed*(prob.think||1));
     await K.until(()=>gt.done);K.hand.on=false;
+    if(!demo&&!guided)K.answer(prob,gt.ok,K.t-t0);
     if(gt.ok){
       if(!demo&&!guided){S.correct++;S.gap=Math.max(0,S.gap-12);S.streak++}
       const who=Math.random()<.5?'kitty':'kitty2';

@@ -1,9 +1,9 @@
 import {clamp} from './util.js';
 
 const SAVE_KEY='maffblast.v1';
-// mode: kids | easy | normal | hard. diff: speed multiplier on fall times.
+// kid: the Kids learning path (see kids/syllabus.js). mode: kids | easy | normal | hard. diff: speed multiplier on fall times.
 export const save={stats:{},levels:{},settings:{diff:1,auto:true,vol:.7,mode:'normal',chapter:'add'}};
-try{const s=JSON.parse(localStorage.getItem(SAVE_KEY));if(s){save.stats=s.stats||{};save.levels=s.levels||{};Object.assign(save.settings,s.settings)}}catch(e){}
+try{const s=JSON.parse(localStorage.getItem(SAVE_KEY));if(s){save.stats=s.stats||{};save.levels=s.levels||{};if(s.kid)save.kid=s.kid;Object.assign(save.settings,s.settings)}}catch(e){}
 export function persist(){try{localStorage.setItem(SAVE_KEY,JSON.stringify(save))}catch(e){}}
 
 // fact keys: "7x8" multiplication, "3+7" addition (order-free), "83-47" subtraction

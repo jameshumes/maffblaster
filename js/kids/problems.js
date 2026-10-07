@@ -15,7 +15,7 @@ export const OBJECTS=[
   {e:'🦆',one:'duck',many:'ducks'},{e:'🌸',one:'flower',many:'flowers'},{e:'🐸',one:'frog',many:'frogs'},
 ];
 
-// kind: add | make10 | sub | mul.  step: how far apart sensible wrong answers are.  think: extra time
+// kind: add | make10 | sub | mul | skip.  step: how far apart sensible wrong answers are.  think: extra time
 const P=(kind,a,b,ans,say,extra={})=>({kind,a,b,ans,say,step:1,think:1,o:pick(OBJECTS),...extra});
 const B={
   add:(a,b,x)=>P('add',a,b,a+b,`${a} plus ${b}?`,x),
@@ -24,6 +24,7 @@ const B={
   make10:a=>P('make10',a,10-a,10-a,`${a} and how many more make 10?`),
   sub:(a,b,x)=>P('sub',a,b,a-b,`${a} take away ${b}?`,x),
   mul:(k,n)=>P('mul',k,n,k*n,`${k} groups of ${n}. ${k} times ${n}?`,{step:n,think:1.5}),
+  skip:(a,n)=>P('skip',a,n,a+3*n,`${a}, ${a+n}, ${a+2*n}. What comes next?`,{step:n,think:1.3}),
 };
 // each skill: a random generator and the full list of what it can produce
 const range=(a,b,s=1)=>{const o=[];for(let i=a;i<=b;i+=s)o.push(i);return o};
@@ -37,11 +38,13 @@ const SPACE={
             ...range(30,90,10).flatMap(a=>range(10,a-10,10).map(b=>[B.sub,a,b,{step:10,think:1.2}]))],
   add2d:()=>range(12,59).filter(a=>a%10).flatMap(a=>range(3,9).map(b=>[B.add,a,b,{think:1.4}])),
   times:()=>[2,5,10].flatMap(n=>range(2,6).map(k=>[B.mul,k,n])),
+  skip:()=>[...range(2,12,2).map(a=>[B.skip,a,2]),...range(5,35,5).map(a=>[B.skip,a,5]),...range(10,60,10).map(a=>[B.skip,a,10])],
 };
-SPACE.mix=()=>['add20','sub20','doubles','tens','add2d','times'].flatMap(s=>SPACE[s]());
+SPACE.mix=()=>['add20','sub20','doubles','tens','add2d','times'].flatMap(s=>space(s));
 const cache={};
-const space=s=>cache[s]||(cache[s]=(SPACE[s]||SPACE.add10)());
-const build=([f,...args])=>f(...args);
+// each entry remembers which skill it came from, so Mix It Up answers still count toward the right step
+const space=s=>cache[s]||(cache[s]=(SPACE[s]||SPACE.add10)().map(e=>(e.sk??=s,e)));
+const build=e=>{const [f,...args]=e,p=f(...args);if(e.sk)p.sk=e.sk;return p};
 
 export const SKILLS=[
   {id:'add10',name:'Warm Up',icon:'🧮'},
@@ -79,6 +82,7 @@ export function answerSay(p){
   if(p.kind==='make10')return`${p.a} and ${p.ans} make 10!`;
   if(p.kind==='sub')return`${p.a} take away ${p.b} is ${p.ans}!`;
   if(p.kind==='mul')return`${p.a} times ${p.b} is ${p.ans}!`;
+  if(p.kind==='skip')return`${p.a+2*p.b}, ${p.ans}! Counting by ${p.b}s.`;
   return`${p.a} plus ${p.b} is ${p.ans}!`;
 }
 export function eqText(p,solved){
@@ -86,6 +90,7 @@ export function eqText(p,solved){
   if(p.kind==='make10')return`${p.a} + ${q} = 10`;
   if(p.kind==='sub')return`${p.a} − ${p.b} = ${q}`;
   if(p.kind==='mul')return`${p.a} × ${p.b} = ${q}`;
+  if(p.kind==='skip')return`${p.a}, ${p.a+p.b}, ${p.a+2*p.b}, ${q}`;
   return`${p.a} + ${p.b} = ${q}`;
 }
 // every sentence the narrator might say about problems, for the voice build

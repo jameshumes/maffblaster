@@ -197,7 +197,7 @@ function create(K){
       await K.say('narrator',`That's ${task.target}!`);await K.say(...L.thumbs);
       const b=btn();for(let k=0;k<16;k++){K.hand.x=l2(K.hand.x,b.x,.3);K.hand.y=l2(K.hand.y,b.y,.3);await K.wait(.03)}K.hand.tap=1;K.sfx.select();await K.wait(.4);K.hand.on=false;
     }else{
-      S.lock=false;S.lastTap=K.t;
+      S.lock=false;S.lastTap=K.t;const t0=K.t,miss0=S.mistakes;
       (async()=>{let hinted=false;while(!S.done&&S.task===task){await K.wait(.5);if(guided&&!hinted&&K.t-S.lastTap>5){hinted=true;const s=S.count<task.target?nextSnack():null;const [sx,sy]=s?screenOf(s.g.position):[btn().x,btn().y];K.hand.on=true;K.hand.x=sx;K.hand.y=sy;K.hand.tap=1}}})();
       while(true){
         await new Promise(r=>{resolveDone=r});resolveDone=null;K.hand.on=false;
@@ -211,6 +211,10 @@ function create(K){
           await K.say('dragon',`Hic! Too many! I wanted ${task.target}.`);
         }
         S.lock=false;S.lastTap=K.t;
+      }
+      if(!guided){
+        const q=task.start?`${task.start} + ? = ${task.target}`:`count by ${task.unit}s to ${task.target}`;
+        K.record(q,S.mistakes===miss0,K.t-t0);
       }
     }
     S.done=true;S.lock=true;
