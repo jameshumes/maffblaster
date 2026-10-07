@@ -1,0 +1,10 @@
+export const $=id=>document.getElementById(id);
+export const rand=(a,b)=>a+Math.random()*(b-a);
+export const ri=(a,b)=>a+Math.floor(Math.random()*(b-a+1));
+export const pick=a=>a[Math.floor(Math.random()*a.length)];
+export const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+export const range=(a,b,s=1)=>{const o=[];for(let i=a;i<=b;i+=s)o.push(i);return o};
+export const pairs=(A,B)=>{const o=[];for(const a of A)for(const b of B)o.push([a,b]);return o};
+export const noTens=n=>n%10!==0;
+export const shuffle=a=>{for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
+export const TOUCH=matchMedia('(pointer:coarse)').matches;
