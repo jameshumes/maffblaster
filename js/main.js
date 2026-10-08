@@ -56,6 +56,9 @@ const worldOf=lv=>lv.ch.worlds[lv.w];
 // halves on a wrong answer and resets on a shield hit, so long clean streaks deep into
 // the waves are worth orders of magnitude more than a decent run.
 const MAX_MULT=999;
+// Seconds of current-speed travel returned by a correct answer. A small reservoir
+// allows bursts, but refills at only 20% of play time so recoil cannot stall a run.
+const RECOIL={base:.12,streakBonus:.06,streakHits:6,capacity:.24,refill:.2};
 const waveSize=lv=>lv.game==='tens'?3:10;
 const unitPts=lv=>lv.game==='tens'?15:lv.mix?lv.mix.reduce((a,id)=>a+LV[id].pts,0)/lv.mix.length:lv.pts;
 const nice=v=>{const p=10**Math.max(0,Math.floor(Math.log10(v))-1);return Math.round(v/p)*p};
@@ -116,7 +119,7 @@ function toast(text,color,sub=''){
 
 function newRun(lv){
   G={lv,t:0,spawned:0,resolved:0,lives:5,maxLives:5,score:0,combo:0,bestCombo:0,hits:0,misses:0,crashes:0,
-     times:[],log:[],lastShot:0,spawnT:.8,queue:[],recent:[],ending:0,wave:1,mult:1,bestMult:1,goals:goalsFor(lv),buffs:{slow:0,over:0,nova:0}};
+     times:[],log:[],lastShot:0,spawnT:.8,queue:[],recent:[],ending:0,wave:1,mult:1,bestMult:1,recoil:RECOIL.capacity,goals:goalsFor(lv),buffs:{slow:0,over:0,nova:0}};
 }
 function removeEnemy(e){
   scene.remove(e.g);e.g.children.forEach(c=>c.material.dispose());e.el.remove();
@@ -253,6 +256,21 @@ function popup(x,y,text,color){
 const live=()=>enemies.filter(e=>!e.pending);
 const candidates=v=>live().filter(e=>e.prob.layers[e.li].a===v);
 
+function recoilField(){
+  const seconds=Math.min(G.recoil,RECOIL.base+RECOIL.streakBonus*clamp((G.combo-1)/(RECOIL.streakHits-1),0,1));
+  const ts=timeScale();let spent=0;
+  for(const e of live()){
+    // Never push a newly spawned enemy offscreen or pull one down after a resize.
+    const speed=e.vy*ts,room=Math.max(0,V.VH/2-e.R-2-e.y);
+    const step=Math.min(room,speed*seconds);
+    if(step<=0)continue;
+    e.y+=step;e.g.position.y=e.y;
+    spent=Math.max(spent,step/speed);
+  }
+  // One reward per answer, independent of enemy count; unused relief isn't spent.
+  G.recoil=Math.max(0,G.recoil-spent);
+}
+
 function typeDigit(d){
   if(state!=='play'||buf.length>=6)return;
   buf+=d;SFX.key();renderInput();
@@ -282,6 +300,7 @@ function fire(e){
   popup(e.x,e.y+e.R+4,'+'+pts.toLocaleString(),e.st.color);
   if(last){recFact(e.prob.key,true,t);G.log.push({key:e.prob.key,t})}
   e.pending=true;
+  recoilField();
   const m=new THREE.Line(shotGeo,glowMat('#ffffff',3.5));m.position.set(0,V.SHIP_Y+2,0);scene.add(m);
   shots.push({m,x:0,y:V.SHIP_Y+2,e});
   FX.shipAim=Math.atan2(e.y-V.SHIP_Y,e.x)-Math.PI/2;
@@ -346,7 +365,10 @@ function updateEnemies(dt){
     e.flash=Math.max(0,e.flash-dt*4);
     const s=Math.min(1,e.age*2.5)*(1+e.flash*.35);e.g.scale.set(s,s,1);
     gridPush(e.x,e.y,10*dt,e.R*2.4);
-    if(!e.pending&&e.y-e.R<=V.SHIELD_Y){if(useNova())nova();else crash(e)}
+    if(!e.pending&&e.y-e.R<=V.SHIELD_Y){
+      buf='';renderInput();
+      if(useNova())nova();else crash(e);
+    }
   }
   const lim=V.VW/2-6;
   for(let i=0;i<enemies.length;i++)for(let j=i+1;j<enemies.length;j++){
@@ -370,6 +392,7 @@ function updatePlay(dt){
   if(tens.active)tens.update(dt);
   else{
     if(state==='play'){
+      G.recoil=Math.min(RECOIL.capacity,G.recoil+dt*RECOIL.refill);
       if(!enemies.length)G.spawnT=Math.min(G.spawnT,.5);
       G.spawnT-=dt*timeScale();
       if(G.spawnT<=0&&enemies.length<concCap()){const n=nextProblem();if(n)spawnEnemy(n);G.spawnT=gapFor()}
@@ -407,6 +430,7 @@ function startLevel(lv){
     ?`Type digits that make 10 to collapse them. Then ${ch?'pick the column total with ← ↓ ↑ → (or D F J K)':'type the column total'}. SPACE clears. ESC pauses.`
     :ch?'Pick the answer for the targeted enemy (▼) with ← ↓ ↑ → or D F J K, or tap it. ESC pauses.'
     :`Type the answer to fire. Auto-fires on an exact match; ENTER forces a shot. BACKSPACE edits, SPACE clears. ESC pauses.${m==='hard'?' HARD: no answer reveal on a miss.':''}`;
+  if(lv.game!=='tens')$('iHint').textContent+=' Correct answers nudge the field back; clean streaks give a little more breathing room.';
   show('intro');
 }
 function beginPlay(){
